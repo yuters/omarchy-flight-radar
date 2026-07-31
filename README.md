@@ -31,30 +31,28 @@ omarchy plugin remove yuters.flight-radar
 
 ## Attribution and terms
 
-This plugin uses data from the OpenSky Network. Per their API documentation, work
-built on that data should cite:
+This plugin uses data from the OpenSky Network. Their
+[terms of use](https://opensky-network.org/about/terms-of-use) ask that any
+publication built on that data cite:
 
-> Matthias Schäfer, Martin Strohmeier, Vincent Lenders, Ivan Martinovic and
-> Matthias Wilhelm.
-> **"Bringing Up OpenSky: A Large-scale ADS-B Sensor Network for Research."**
-> In _Proceedings of the 13th IEEE/ACM International Symposium on Information
-> Processing in Sensor Networks (IPSN)_, pages 83–94, April 2014.
+> **Bringing up OpenSky: A large-scale ADS-B sensor network for research**
+>
+> Matthias Schäfer, Martin Strohmeier, Vincent Lenders, Ivan Martinovic, Matthias Wilhelm
+>
+> ACM/IEEE International Conference on Information Processing in Sensor Networks, April 2014
 
-```bibtex
-@inproceedings{schafer2014bringing,
-  title     = {Bringing Up OpenSky: A Large-scale ADS-B Sensor Network for Research},
-  author    = {Sch{\"a}fer, Matthias and Strohmeier, Martin and Lenders, Vincent
-               and Martinovic, Ivan and Wilhelm, Matthias},
-  booktitle = {Proceedings of the 13th IEEE/ACM International Symposium on
-               Information Processing in Sensor Networks (IPSN)},
-  pages     = {83--94},
-  year      = {2014},
-  month     = {April}
-}
-```
+and, to refer to the site itself, The OpenSky Network,
+[opensky-network.org](https://opensky-network.org).
 
-**The OpenSky API is for research and non-commercial purposes.** Commercial use
-requires their explicit permission — contact OpenSky if that applies to you.
+**Read the terms before you rely on this.** OpenSky licenses the data for
+non-profit research and education, and as they are written today, *operational*
+use of the REST API — integration into a live product, service or automated
+system — requires a written licence from them regardless of whether you are a
+non-profit. A desktop widget that polls the API on a timer is plausibly
+operational use. Any commercial or for-profit use, contractors included, needs a
+licence outright. Contact OpenSky at contact[at]opensky-network.org if either
+applies to you.
+
 OpenSky also blocks some IP ranges, cloud providers among them, in response to
 misuse; if the radar cannot reach the API from a hosted environment, that is
 expected and should be respected rather than worked around.
