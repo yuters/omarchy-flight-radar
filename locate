@@ -1,0 +1,180 @@
+#!/bin/bash
+
+# Resolve a radar centre when no coordinates are configured.
+#
+# Usage: locate [--refresh]
+#
+# Prints {"latitude":…,"longitude":…,"source":"<provider>"} or {"error":"…"},
+# exiting 0 either way so the panel can show the reason.
+#
+# Sources best-first: gpsd, ModemManager GNSS, /dev/gnss*, then IP geolocation.
+# Most laptops have none of the first three and land on the IP fallback — good
+# enough to frame the scope, useless for a tight overhead zone.
+#
+# Keyless throughout: browser-grade WiFi positioning needs a paid Google API key,
+# which a zero-setup default cannot depend on.
+
+set -uo pipefail
+
+readonly CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-flight-radar"
+readonly CACHE_FILE="$CACHE_DIR/location"
+readonly CACHE_TTL_SECONDS=$((6 * 60 * 60))
+
+die() {
+  jq -cn --arg m "$1" '{error: $m}'
+  exit 0
+}
+
+emit_if_valid() {
+  local latitude="$1" longitude="$2" source="$3"
+
+  jq -cn \
+    --argjson lat "$latitude" \
+    --argjson lon "$longitude" \
+    --arg src "$source" '
+    if ($lat | type) != "number" or ($lon | type) != "number" then empty
+    elif ($lat < -90 or $lat > 90 or $lon < -180 or $lon > 180) then empty
+    elif ($lat == 0 and $lon == 0) then empty
+    else {latitude: $lat, longitude: $lon, source: $src}
+    end
+  ' 2>/dev/null
+}
+
+try_provider() {
+  local name="$1" url="$2" filter="$3" response pair latitude longitude
+
+  response=$(curl -fsS --max-time 8 "$url" 2>/dev/null) || return 1
+  pair=$(printf '%s' "$response" | jq -c "$filter" 2>/dev/null) || return 1
+  [[ -n $pair && $pair != "null" ]] || return 1
+
+  latitude=$(printf '%s' "$pair" | jq -c '.[0]' 2>/dev/null)
+  longitude=$(printf '%s' "$pair" | jq -c '.[1]' 2>/dev/null)
+  [[ -n $latitude && -n $longitude ]] || return 1
+
+  local result
+  result=$(emit_if_valid "$latitude" "$longitude" "$name")
+  [[ -n $result ]] || return 1
+
+  printf '%s' "$result"
+}
+
+try_gpsd() {
+  command -v gpspipe >/dev/null || return 1
+
+  local report latitude longitude
+  report=$(timeout 8 gpspipe -w -n 25 2>/dev/null |
+    jq -c 'select(.class == "TPV") | select(.mode >= 2) | select(.lat != null) | [.lat, .lon]' 2>/dev/null |
+    head -1) || return 1
+  [[ -n $report ]] || return 1
+
+  latitude=$(printf '%s' "$report" | jq -c '.[0]' 2>/dev/null)
+  longitude=$(printf '%s' "$report" | jq -c '.[1]' 2>/dev/null)
+  emit_if_valid "$latitude" "$longitude" "gps"
+}
+
+try_modemmanager() {
+  command -v mmcli >/dev/null || return 1
+
+  local modem raw latitude longitude
+  modem=$(mmcli -L 2>/dev/null | grep -oE '/Modem/[0-9]+' | head -1) || return 1
+  [[ -n $modem ]] || return 1
+
+  raw=$(mmcli -m "${modem##*/}" --location-get --output-json 2>/dev/null) || return 1
+
+  latitude=$(printf '%s' "$raw" | jq -c '
+    (.modem.location.gps.latitude // .modem.location."3gpp".latitude // empty) | tonumber?' 2>/dev/null)
+  longitude=$(printf '%s' "$raw" | jq -c '
+    (.modem.location.gps.longitude // .modem.location."3gpp".longitude // empty) | tonumber?' 2>/dev/null)
+  [[ -n $latitude && -n $longitude ]] || return 1
+
+  emit_if_valid "$latitude" "$longitude" "modem-gnss"
+}
+
+try_gnss_device() {
+  local device
+  for device in /dev/gnss*; do
+    [[ -r $device ]] || continue
+
+    local sentence
+    sentence=$(timeout 6 head -c 4096 "$device" 2>/dev/null |
+      grep -aoE '\$G[PNLA](GGA|RMC),[^*]*' | head -20) || continue
+    [[ -n $sentence ]] || continue
+
+    local result
+    result=$(printf '%s\n' "$sentence" | python3 -c '
+import sys
+
+def dm_to_deg(value, hemisphere):
+    if not value or "." not in value:
+        return None
+    head, _, _ = value.partition(".")
+    degrees_len = len(head) - 2
+    if degrees_len < 1:
+        return None
+    degrees = float(value[:degrees_len])
+    minutes = float(value[degrees_len:])
+    decimal = degrees + minutes / 60.0
+    if hemisphere in ("S", "W"):
+        decimal = -decimal
+    return decimal
+
+for line in sys.stdin:
+    parts = line.strip().split(",")
+    kind = parts[0][3:] if len(parts[0]) >= 6 else ""
+    try:
+        if kind == "GGA" and len(parts) > 5 and parts[6] not in ("", "0"):
+            lat, lon = dm_to_deg(parts[2], parts[3]), dm_to_deg(parts[4], parts[5])
+        elif kind == "RMC" and len(parts) > 6 and parts[2] == "A":
+            lat, lon = dm_to_deg(parts[3], parts[4]), dm_to_deg(parts[5], parts[6])
+        else:
+            continue
+    except (ValueError, IndexError):
+        continue
+    if lat is not None and lon is not None:
+        print(f"{lat:.6f} {lon:.6f}")
+        break
+' 2>/dev/null) || continue
+    [[ -n $result ]] || continue
+
+    emit_if_valid "${result% *}" "${result#* }" "gnss-device" && return 0
+  done
+  return 1
+}
+
+if [[ ${1:-} != "--refresh" && -r $CACHE_FILE ]]; then
+  cached_at=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)
+  if (($(date +%s) - cached_at < CACHE_TTL_SECONDS)); then
+    cached=$(cat "$CACHE_FILE" 2>/dev/null)
+    if printf '%s' "$cached" | jq -e '.latitude and .longitude' >/dev/null 2>&1; then
+      printf '%s' "$cached"
+      exit 0
+    fi
+  fi
+fi
+
+location=""
+for source in try_gpsd try_modemmanager try_gnss_device; do
+  location=$($source 2>/dev/null) && [[ -n $location ]] && break
+  location=""
+done
+
+if [[ -n $location ]]; then
+  mkdir -p "$CACHE_DIR" 2>/dev/null && printf '%s' "$location" >"$CACHE_FILE" 2>/dev/null
+  printf '%s' "$location"
+  exit 0
+fi
+
+for provider in \
+  "geojs|https://get.geojs.io/v1/ip/geo.json|[(.latitude|tonumber?), (.longitude|tonumber?)]" \
+  "ipinfo|https://ipinfo.io/json|[(.loc|split(\",\")[0]|tonumber?), (.loc|split(\",\")[1]|tonumber?)]" \
+  "ipapi|https://ipapi.co/json/|[(.latitude|tonumber?), (.longitude|tonumber?)]"; do
+
+  IFS='|' read -r name url filter <<<"$provider"
+  location=$(try_provider "$name" "$url" "$filter") && break
+  location=""
+done
+
+[[ -n $location ]] || die "Could not determine an approximate location from your IP address"
+
+mkdir -p "$CACHE_DIR" 2>/dev/null && printf '%s' "$location" >"$CACHE_FILE" 2>/dev/null
+printf '%s' "$location"

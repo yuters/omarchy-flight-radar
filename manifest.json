@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "id": "yuters.flight-radar",
+  "name": "Flight Radar",
+  "version": "1.0.0",
+  "author": "yuters",
+  "license": "MIT",
+  "description": "Live aircraft overhead on a micro-radar style scope, with an overhead badge and notifications. Works without an account.",
+  "homepage": "https://github.com/yuters/omarchy-flight-radar",
+  "repository": "https://github.com/yuters/omarchy-flight-radar",
+  "keywords": [
+    "aircraft",
+    "flight",
+    "radar",
+    "adsb",
+    "opensky",
+    "aviation"
+  ],
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Flight Radar",
+    "description": "Aircraft currently overhead on a radar scope, fed by the OpenSky Network",
+    "category": "Info",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "latitude": null,
+      "longitude": null,
+      "rangeNm": 20,
+      "scopeSize": 320,
+      "refreshIntervalSec": 20,
+      "watch": true,
+      "watchIntervalSec": 60,
+      "notify": true,
+      "notifyCooldownMin": 10,
+      "overheadCeilingFt": 0,
+      "sweep": true,
+      "labels": true,
+      "triangles": true,
+      "aviationUnits": true,
+      "overheadRadiusNm": 2
+    },
+    "schema": [
+      {
+        "key": "latitude",
+        "type": "number",
+        "label": "Centre latitude (blank to locate from your IP address)",
+        "min": -90,
+        "max": 90,
+        "defaultValue": null
+      },
+      {
+        "key": "longitude",
+        "type": "number",
+        "label": "Centre longitude (blank to locate from your IP address)",
+        "min": -180,
+        "max": 180,
+        "defaultValue": null
+      },
+      {
+        "key": "rangeNm",
+        "type": "number",
+        "label": "Scope range (nautical miles)",
+        "min": 5,
+        "max": 120,
+        "step": 5,
+        "defaultValue": 20
+      },
+      {
+        "key": "scopeSize",
+        "type": "integer",
+        "label": "Scope diameter (pixels)",
+        "min": 200,
+        "max": 520,
+        "step": 20,
+        "defaultValue": 320
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval while the panel is open (seconds)",
+        "min": 10,
+        "max": 300,
+        "step": 5,
+        "defaultValue": 20
+      },
+      {
+        "key": "watch",
+        "type": "boolean",
+        "label": "Watch in the background for the badge and notifications",
+        "defaultValue": true
+      },
+      {
+        "key": "watchIntervalSec",
+        "type": "integer",
+        "label": "Background poll interval (seconds)",
+        "min": 30,
+        "max": 900,
+        "step": 15,
+        "defaultValue": 60
+      },
+      {
+        "key": "notify",
+        "type": "boolean",
+        "label": "Notify when an aircraft comes overhead",
+        "defaultValue": true
+      },
+      {
+        "key": "notifyCooldownMin",
+        "type": "integer",
+        "label": "Minimum minutes before re-notifying the same aircraft",
+        "min": 1,
+        "max": 240,
+        "step": 1,
+        "defaultValue": 10
+      },
+      {
+        "key": "overheadRadiusNm",
+        "type": "number",
+        "label": "Overhead radius (nautical miles)",
+        "min": 0.2,
+        "max": 60,
+        "step": 0.5,
+        "defaultValue": 2
+      },
+      {
+        "key": "overheadCeilingFt",
+        "type": "integer",
+        "label": "Ignore aircraft above this altitude (feet, 0 for any)",
+        "min": 0,
+        "max": 60000,
+        "step": 1000,
+        "defaultValue": 0
+      },
+      {
+        "key": "sweep",
+        "type": "boolean",
+        "label": "Animate the rotating sweep",
+        "defaultValue": true
+      },
+      {
+        "key": "labels",
+        "type": "boolean",
+        "label": "Label contacts on the scope",
+        "defaultValue": true
+      },
+      {
+        "key": "triangles",
+        "type": "boolean",
+        "label": "Draw contacts as heading triangles",
+        "defaultValue": true
+      },
+      {
+        "key": "aviationUnits",
+        "type": "boolean",
+        "label": "Use knots and feet instead of km/h and metres",
+        "defaultValue": true
+      }
+    ]
+  }
+}

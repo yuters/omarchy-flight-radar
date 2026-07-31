@@ -1,0 +1,128 @@
+#!/bin/bash
+
+# Fetch OpenSky Network state vectors for a lat/lon bounding box.
+#
+# Usage: opensky-fetch <lamin> <lomin> <lamax> <lomax>
+#
+# Prints {"time":…,"authenticated":…,"states":[…]}, or {"error":"…"} — exiting 0
+# either way so the panel can render the reason. A refusal for rate limiting also
+# carries "limited": true.
+#
+# Credentials are optional (4000 requests/day instead of 400) and live beside
+# this script in <plugin dir>/opensky.json at mode 0600, which .gitignore
+# excludes. Never ship that file in an archive; removing the plugin removes it.
+
+set -uo pipefail
+
+readonly TOKEN_URL="https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
+readonly STATES_URL="https://opensky-network.org/api/states/all"
+readonly PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly CREDS_FILE="${OMARCHY_RADAR_CREDS:-$PLUGIN_DIR/opensky.json}"
+readonly CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-flight-radar"
+readonly TOKEN_FILE="$CACHE_DIR/token"
+
+die() {
+  jq -cn --arg m "$1" '{error: $m}'
+  exit 0
+}
+
+die_limited() {
+  jq -cn --arg m "$1" '{error: $m, limited: true}'
+  exit 0
+}
+
+[[ $# -eq 4 ]] || die "opensky-fetch expects lamin, lomin, lamax, lomax"
+
+urlencode() {
+  local raw="$1" out="" ch i
+  for ((i = 0; i < ${#raw}; i++)); do
+    ch=${raw:i:1}
+    case $ch in
+      [a-zA-Z0-9.~_-]) out+=$ch ;;
+      *) out+=$(printf '%%%02X' "'$ch") ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+read_cached_token() {
+  [[ -r $TOKEN_FILE ]] || return 1
+  local expiry token
+  IFS=$'\t' read -r expiry token <"$TOKEN_FILE" || return 1
+  [[ ${expiry:-} =~ ^[0-9]+$ && -n ${token:-} ]] || return 1
+  ((expiry > $(date +%s))) || return 1
+  printf '%s' "$token"
+}
+
+fetch_token() {
+  [[ -r $CREDS_FILE ]] || return 1
+
+  local id secret body response token tmp
+  id=$(jq -r '.clientId // .client_id // empty' "$CREDS_FILE" 2>/dev/null) || return 1
+  secret=$(jq -r '.clientSecret // .client_secret // empty' "$CREDS_FILE" 2>/dev/null) || return 1
+  [[ -n $id && -n $secret ]] || return 1
+
+  body="grant_type=client_credentials&client_id=$(urlencode "$id")&client_secret=$(urlencode "$secret")"
+  response=$(
+    printf 'url = "%s"\nheader = "Content-Type: application/x-www-form-urlencoded"\ndata = "%s"\n' \
+      "$TOKEN_URL" "$body" | curl -fsS --max-time 15 --config - 2>/dev/null
+  ) || return 1
+
+  token=$(printf '%s' "$response" | jq -r '.access_token // empty' 2>/dev/null)
+  [[ -n $token ]] || return 1
+
+  mkdir -p "$CACHE_DIR" 2>/dev/null && chmod 700 "$CACHE_DIR" 2>/dev/null
+  tmp=$(mktemp "$CACHE_DIR/token.XXXXXX" 2>/dev/null) || {
+    printf '%s' "$token"
+    return 0
+  }
+  chmod 600 "$tmp"
+  printf '%s\t%s\n' "$(($(date +%s) + 29 * 60))" "$token" >"$tmp"
+  mv -f "$tmp" "$TOKEN_FILE"
+  printf '%s' "$token"
+}
+
+RESPONSE=""
+HTTP_CODE=""
+
+request_states() {
+  local bearer="$1" config raw
+  config="url = \"$STATES_URL?$QUERY\""
+  [[ -n $bearer ]] && config+=$'\n'"header = \"Authorization: Bearer $bearer\""
+  raw=$(printf '%s\n' "$config" | curl -sS -w '\n%{http_code}' --max-time 20 --config - 2>/dev/null) || {
+    RESPONSE=""
+    HTTP_CODE=""
+    return 1
+  }
+  HTTP_CODE="${raw##*$'\n'}"
+  RESPONSE="${raw%$'\n'*}"
+  [[ $HTTP_CODE == 2* ]]
+}
+
+QUERY="lamin=$1&lomin=$2&lamax=$3&lomax=$4"
+
+token=$(read_cached_token) || token=$(fetch_token) || token=""
+
+readonly LIMIT_MESSAGE="OpenSky's daily request limit is spent — it resets at 00:00 UTC"
+
+if ! request_states "$token"; then
+  [[ $HTTP_CODE == 429 ]] && die_limited "$LIMIT_MESSAGE"
+
+  if [[ -n $token ]]; then
+    rm -f "$TOKEN_FILE"
+    token=$(fetch_token) || token=""
+    if ! request_states "$token"; then
+      [[ $HTTP_CODE == 429 ]] && die_limited "$LIMIT_MESSAGE"
+      die "OpenSky request failed — network error or the service is unavailable"
+    fi
+  else
+    die "OpenSky request failed — network error or the service is unavailable"
+  fi
+fi
+
+authenticated=false
+[[ -n $token ]] && authenticated=true
+
+printf '%s' "$RESPONSE" | jq -c --argjson authed "$authenticated" \
+  '{time: (.time // 0), authenticated: $authed, states: (.states // [])}' 2>/dev/null ||
+  die "OpenSky returned a response that could not be parsed"
