@@ -245,6 +245,9 @@ Panel {
   function loadCentreFields() {
     latitudeField.text = hasManualCentre ? String(latitudeSetting) : ""
     longitudeField.text = hasManualCentre ? String(longitudeSetting) : ""
+    rangeField.field.value = rangeNm
+    overheadField.field.value = overheadRadiusNm
+    ceilingField.field.value = overheadCeilingFt
     setNotice("", false)
   }
 
@@ -253,9 +256,8 @@ Panel {
     var lonText = String(longitudeField.text).replace(/^\s+|\s+$/g, "")
 
     if (latText === "" && lonText === "") {
-      if (!hasManualCentre) return
-      useApproximateLocation()
-      return
+      if (hasManualCentre) useApproximateLocation()
+      return true
     }
 
     var lat = parseFloat(latText)
@@ -263,20 +265,28 @@ Panel {
 
     if (!isFinite(lat) || !isFinite(lon)) {
       setNotice("Enter both a latitude and a longitude, or clear both to locate automatically.", true)
-      return
+      return false
     }
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       setNotice("Latitude must be between -90 and 90, longitude between -180 and 180.", true)
-      return
+      return false
     }
 
     if (hasManualCentre
         && Math.abs(lat - parseFloat(String(latitudeSetting))) < 1e-9
-        && Math.abs(lon - parseFloat(String(longitudeSetting))) < 1e-9) return
+        && Math.abs(lon - parseFloat(String(longitudeSetting))) < 1e-9) return true
 
-    setNotice("Centre set.", false)
     saveConfig("latitude", lat)
     saveConfig("longitude", lon)
+    return true
+  }
+
+  function saveSettings() {
+    if (!commitCentre()) return
+    saveConfig("rangeNm", rangeField.field.value)
+    saveConfig("overheadRadiusNm", overheadField.field.value)
+    saveConfig("overheadCeilingFt", ceilingField.field.value)
+    setNotice("Settings saved.", false)
   }
 
   function resetSettings() {
@@ -1078,13 +1088,12 @@ Panel {
                   id: latitudeField
                   width: parent.width
                   placeholderText: "auto"
-                  onActiveFocusChanged: if (!activeFocus) radarRoot.commitCentre()
                   foreground: radarRoot.foreground
                   font.family: radarRoot.fontFamily
                   Keys.onEscapePressed: keyCatcher.forceActiveFocus()
                   KeyNavigation.tab: longitudeField
                   KeyNavigation.backtab: clientSecretField
-                  onEditingFinished: radarRoot.commitCentre()
+                  onAccepted: radarRoot.saveSettings()
                 }
               }
 
@@ -1103,13 +1112,12 @@ Panel {
                   id: longitudeField
                   width: parent.width
                   placeholderText: "auto"
-                  onActiveFocusChanged: if (!activeFocus) radarRoot.commitCentre()
                   foreground: radarRoot.foreground
                   font.family: radarRoot.fontFamily
                   Keys.onEscapePressed: keyCatcher.forceActiveFocus()
                   KeyNavigation.tab: clientIdField
                   KeyNavigation.backtab: latitudeField
-                  onEditingFinished: radarRoot.commitCentre()
+                  onAccepted: radarRoot.saveSettings()
                 }
               }
             }
@@ -1139,7 +1147,6 @@ Panel {
                 value: Math.round(RadarModel.clampNumber(radarRoot.conf("rangeNm", 20), 5, 120, 20))
                 foreground: radarRoot.foreground
                 fontFamily: radarRoot.fontFamily
-                onModified: function(v) { radarRoot.saveConfig("rangeNm", v) }
               }
 
               NumberField {
@@ -1153,7 +1160,6 @@ Panel {
                 value: Math.round(RadarModel.clampNumber(radarRoot.conf("overheadRadiusNm", 2), 1, 60, 2))
                 foreground: radarRoot.foreground
                 fontFamily: radarRoot.fontFamily
-                onModified: function(v) { radarRoot.saveConfig("overheadRadiusNm", v) }
               }
 
               NumberField {
@@ -1167,7 +1173,6 @@ Panel {
                 value: Math.round(RadarModel.clampNumber(radarRoot.conf("overheadCeilingFt", 0), 0, 60000, 0))
                 foreground: radarRoot.foreground
                 fontFamily: radarRoot.fontFamily
-                onModified: function(v) { radarRoot.saveConfig("overheadCeilingFt", v) }
               }
             }
 
@@ -1187,12 +1192,12 @@ Panel {
 
               Button {
                 text: "Save"
-                tooltipText: "Apply the coordinates above"
+                tooltipText: "Apply the settings above"
                 bordered: true
                 foreground: radarRoot.foreground
                 fontFamily: radarRoot.fontFamily
                 fontSize: Style.font.caption
-                onClicked: radarRoot.commitCentre()
+                onClicked: radarRoot.saveSettings()
               }
 
               Button {
