@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "yuters.flight-radar",
   "name": "Flight Radar",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "author": "yuters",
   "license": "MIT",
   "description": "Live aircraft overhead on a micro-radar style scope, with an overhead badge and notifications. Works without an account.",
