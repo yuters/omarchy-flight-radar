@@ -570,10 +570,15 @@ function notificationBatchText(notifications) {
     return { headline: notifications[0].headline, body: notifications[0].body }
 
   var forecastCount = 0
-  var lines = []
+  var closestForecastSeconds = -1
   for (var i = 0; i < notifications.length; i++) {
-    if (notifications[i].forecast) forecastCount++
-    lines.push(notifications[i].headline + " · " + notifications[i].body)
+    if (!notifications[i].forecast) continue
+
+    forecastCount++
+    var eta = notifications[i].etaSeconds
+    if (!isFinite(eta) || eta <= 0) continue
+    if (closestForecastSeconds < 0 || eta < closestForecastSeconds)
+      closestForecastSeconds = eta
   }
 
   var headline = notifications.length + " aircraft alerts"
@@ -582,7 +587,11 @@ function notificationBatchText(notifications) {
   if (forecastCount === 0)
     headline = notifications.length + " aircraft overhead"
 
-  return { headline: headline, body: lines.join("\n") }
+  var body = "Open Flight Radar for positions and flight details."
+  if (closestForecastSeconds > 0)
+    body = "Closest one in " + formatForecastEta(closestForecastSeconds) + ".\n" + body
+
+  return { headline: headline, body: body }
 }
 
 function compassPoint(bearing) {

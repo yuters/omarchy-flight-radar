@@ -788,7 +788,12 @@ Panel {
       : RadarModel.notificationText(contact, aviationUnits)
     var first = pendingNotifications.length === 0
     var next = pendingNotifications.slice()
-    next.push({ headline: text.headline, body: text.body, forecast: forecast })
+    next.push({
+      headline: text.headline,
+      body: text.body,
+      forecast: forecast,
+      etaSeconds: forecast ? contact.approachEtaSeconds : -1
+    })
     pendingNotifications = next
 
     // Arrival alerts are time-sensitive. Flush on the next event-loop tick so

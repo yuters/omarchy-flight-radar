@@ -132,17 +132,17 @@ test("forecast qualification respects the overhead ring and ceiling", () => {
   assert.equal(radar.forecastText(forecasts[0], true), "INBOUND · 2 min · closest 0.5nm")
 })
 
-test("notification batches preserve every aircraft", () => {
+test("notification batches fit a compact notification panel", () => {
   const alerts = [
-    { headline: "FIRST approaching overhead", body: "Closest in 2 min", forecast: true },
-    { headline: "SECOND approaching overhead", body: "Closest in 4 min", forecast: true }
+    { headline: "FIRST approaching overhead", body: "Closest in 2 min", forecast: true, etaSeconds: 120 },
+    { headline: "SECOND approaching overhead", body: "Closest in 4 min", forecast: true, etaSeconds: 240 }
   ]
 
   const batch = radar.notificationBatchText(alerts)
 
   assert.equal(batch.headline, "2 aircraft approaching overhead")
-  assert.match(batch.body, /FIRST approaching overhead · Closest in 2 min/)
-  assert.match(batch.body, /SECOND approaching overhead · Closest in 4 min/)
+  assert.equal(batch.body,
+    "Closest one in 2 min.\nOpen Flight Radar for positions and flight details.")
   assert.deepEqual(radar.notificationBatchText([alerts[0]]), {
     headline: alerts[0].headline,
     body: alerts[0].body
