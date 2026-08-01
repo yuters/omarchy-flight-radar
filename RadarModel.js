@@ -225,14 +225,19 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
     if (tracked.state.onGround) continue
 
     var position = displayPosition(tracked, now)
-    var point = project(position.lat, position.lon, centreLat, centreLon, radiusDeg, size)
+    var drawnLat = position.lat
+    var drawnLon = position.lon
     var track = tracked.state.trueTrack
 
+    // Held in degrees, not pixels, so a hold survives a range or centre change.
     var hold = held ? held[icao] : null
     if (hold) {
-      point = { x: hold.x, y: hold.y }
+      drawnLat = hold.lat
+      drawnLon = hold.lon
       track = hold.trueTrack
     }
+
+    var point = project(drawnLat, drawnLon, centreLat, centreLon, radiusDeg, size)
 
     var centre = size / 2 - 1
     var offsetX = point.x - centre
@@ -247,6 +252,8 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
       callsign: tracked.state.callsign !== "" ? tracked.state.callsign : tracked.state.icao24.toUpperCase(),
       x: point.x,
       y: point.y,
+      lat: drawnLat,
+      lon: drawnLon,
       trueTrack: track,
       velocity: tracked.state.velocity,
       verticalRate: tracked.state.verticalRate,

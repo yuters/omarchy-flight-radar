@@ -558,8 +558,8 @@ Panel {
       if (Math.floor((current - angle) / twoPi) > Math.floor((prevSweepAngle - angle) / twoPi)) {
         litAt[contact.icao24] = now
         heldPositions[contact.icao24] = {
-          x: contact.x,
-          y: contact.y,
+          lat: contact.lat,
+          lon: contact.lon,
           trueTrack: contact.trueTrack
         }
       }
