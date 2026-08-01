@@ -770,7 +770,14 @@ Panel {
     var next = pendingNotifications.slice()
     next.push({ headline: text.headline, body: text.body, forecast: forecast })
     pendingNotifications = next
-    notifiedAt[contact.icao24] = now
+
+    // Arrival alerts are time-sensitive. Flush on the next event-loop tick so
+    // contacts found in this evaluation can still share the notification.
+    if (!forecast) {
+      notificationBatchTimer.interval = 1
+      notificationBatchTimer.restart()
+      return
+    }
 
     if (!first) return
     notificationBatchTimer.interval = Math.max(1, 60000 - now % 60000)
@@ -820,8 +827,8 @@ Panel {
       if (overheadIds[contact.icao24]) continue      // already counted, not new
 
       var last = notifiedAt[contact.icao24] || 0
-      var forecastedUntil = activeForecastAlerts[contact.icao24] || 0
-      if (notifyEnabled && now >= forecastedUntil && now - last > notifyCooldownMs) {
+      if (notifyEnabled && now - last > notifyCooldownMs) {
+        notifiedAt[contact.icao24] = now
         queueNotification(contact, false, now)
       }
     }
@@ -830,9 +837,6 @@ Panel {
       var forecast = forecasts[j]
       if (!forecastNotifyEnabled) continue
       if ((activeForecastAlerts[forecast.icao24] || 0) > now) continue
-
-      var forecastLast = notifiedAt[forecast.icao24] || 0
-      if (now - forecastLast <= notifyCooldownMs) continue
 
       queueNotification(forecast, true, now)
       activeForecastAlerts[forecast.icao24] = now + forecastPassDedupeMs
@@ -1678,15 +1682,35 @@ Panel {
               }
             }
 
-            Toggle {
-              id: forecastNotifyToggle
+            Item {
               width: parent.width
-              label: "Advance flyby alerts"
-              checked: radarRoot.forecastNotifyDraft
-              foreground: radarRoot.foreground
-              accent: radarRoot.scopeTint
-              fontFamily: radarRoot.fontFamily
-              onClicked: radarRoot.forecastNotifyDraft = !radarRoot.forecastNotifyDraft
+              implicitHeight: forecastNotifyRow.implicitHeight
+              height: implicitHeight
+
+              Row {
+                id: forecastNotifyRow
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(6)
+
+                Text {
+                  id: forecastNotifyLabel
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: "Advance flyby alerts"
+                  color: radarRoot.foreground
+                  font.family: radarRoot.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+
+                ToggleSwitch {
+                  id: forecastNotifySwitch
+                  anchors.verticalCenter: parent.verticalCenter
+                  checked: radarRoot.forecastNotifyDraft
+                  foreground: radarRoot.foreground
+                  accent: radarRoot.scopeTint
+                  onToggled: radarRoot.forecastNotifyDraft = !radarRoot.forecastNotifyDraft
+                }
+              }
             }
 
             Text {
