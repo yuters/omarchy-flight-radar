@@ -1,10 +1,9 @@
 
 var LAT_METERS_PER_DEG = 111320.0
-// The firmware's blend counter advances 0.15 per second (~6.7s per correction).
-// Expressed as a duration because progress here is derived from the clock: an
-// accumulating counter would advance once per caller rather than once per frame,
-// and both the canvas and the list timer ask.
-var BLEND_DURATION_MS = 1000.0 / 0.15
+// A contact eases onto a new fix over this long. A duration rather than a step
+// per update, because progress is read from the clock: a step would advance
+// once per caller, and both the canvas and the list timer ask.
+var BLEND_DURATION_MS = 6667
 var METERS_PER_SEC_TO_KNOTS = 1.943844
 var METERS_TO_FEET = 3.280840
 var EARTH_RADIUS_KM = 6371.0
