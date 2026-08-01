@@ -462,7 +462,7 @@ Panel {
     lastUpdatedAt = Qt.formatTime(new Date(), "HH:mm:ss")
     rebuildContacts()
     evaluateOverhead()
-    scope.requestPaint()
+    repaintScope()
   }
 
   function snapPositions() {
@@ -667,6 +667,7 @@ Panel {
     var visible = RadarModel.buildContacts(trackedById, now,
       centreLat, centreLon, radiusDeg, unitSize)
     var inRange = ({})
+    var moved = false
 
     for (var i = 0; i < visible.length; i++) {
       var contact = visible[i]
@@ -679,6 +680,7 @@ Panel {
           lon: contact.lon,
           trueTrack: contact.trueTrack
         }
+        moved = true
       }
     }
 
@@ -693,11 +695,13 @@ Panel {
       if (sweepCrossed(scopeAngle(point.x, point.y), current)) {
         delete heldPositions[icao]
         delete litAt[icao]
+        moved = true
       }
     }
 
     prevSweepAngle = current
     drawnAt = -1
+    if (moved) overlay.requestPaint()
   }
 
   function contactGlow(icao24, now) {
@@ -854,18 +858,7 @@ Panel {
 
     if (showSweep) paintSweep(ctx, centre, centre, (now - epochMs) / 3000.0, outer)
 
-    ctx.lineWidth = 1
-    paintRing(ctx, centre, centre, outer, ringOuterColor)
-    paintRing(ctx, centre, centre, (outer / 3) * 2, ringMidColor)
-    paintRing(ctx, centre, centre, outer / 3, ringInnerColor)
-
     var visible = drawnContacts()
-
-    var overheadRing = RadarModel.overheadRingUnits(overheadRadiusNm, radiusDeg, unitSize)
-    if (overheadRing >= 3 && overheadRing < outer)
-      paintRing(ctx, centre, centre, overheadRing, overheadRingColor)
-
-    if (showLabels) paintLabels(ctx, visible, centre, outer)
 
     var glows = []
     for (var g = 0; g < visible.length; g++) {
@@ -878,6 +871,37 @@ Panel {
     ctx.restore()
   }
 
+  // Rings never move, and labels only move when the sweep repaints a contact,
+  // so they sit on a canvas of their own above the animation rather than being
+  // redrawn with every frame of it.
+  function paintOverlay(ctx) {
+    var centre = unitSize / 2 - 1
+    var outer = unitSize / 2 - 1
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(centre, centre, outer, 0, Math.PI * 2)
+    ctx.clip()
+
+    ctx.lineWidth = 1
+    paintRing(ctx, centre, centre, outer, ringOuterColor)
+    paintRing(ctx, centre, centre, (outer / 3) * 2, ringMidColor)
+    paintRing(ctx, centre, centre, outer / 3, ringInnerColor)
+
+    var overheadRing = RadarModel.overheadRingUnits(overheadRadiusNm, radiusDeg, unitSize)
+    if (overheadRing >= 3 && overheadRing < outer)
+      paintRing(ctx, centre, centre, overheadRing, overheadRingColor)
+
+    if (showLabels) paintLabels(ctx, drawnContacts(), centre, outer)
+
+    ctx.restore()
+  }
+
+  function repaintScope() {
+    scope.requestPaint()
+    overlay.requestPaint()
+  }
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -887,8 +911,12 @@ Panel {
     if (!hasManualCentre) resolveAutoLocation()
   }
 
-  onScopeTintChanged: scope.requestPaint()
-  onScopeBackgroundChanged: scope.requestPaint()
+  onScopeTintChanged: repaintScope()
+  onScopeBackgroundChanged: repaintScope()
+  onRadiusDegChanged: repaintScope()
+  onOverheadRadiusNmChanged: overlay.requestPaint()
+  onCentreLatChanged: repaintScope()
+  onCentreLonChanged: repaintScope()
 
   onHasManualCentreChanged: {
     if (hasManualCentre) {
@@ -911,7 +939,7 @@ Panel {
     rebuildContacts()
     checkCredentials()
     prevSweepAngle = -1
-    scope.requestPaint()
+    repaintScope()
     loadCentreFields()
     Qt.callLater(function() {
       keyCatcher.forceActiveFocus()
@@ -942,6 +970,7 @@ Panel {
       radarRoot.frameNow = Date.now()
       radarRoot.updateSweepHits()
       scope.requestPaint()
+      if (!radarRoot.showSweep) overlay.requestPaint()
     }
   }
 
@@ -1613,6 +1642,24 @@ Panel {
                 var k = width / radarRoot.unitSize
                 ctx.scale(k, k)
                 radarRoot.paintScope(ctx)
+                ctx.restore()
+              }
+            }
+
+            Canvas {
+              id: overlay
+              anchors.fill: parent
+              renderStrategy: Canvas.Cooperative
+
+              onPaint: {
+                var ctx = getContext("2d")
+                if (!ctx) return
+
+                ctx.reset()
+                ctx.save()
+                var k = width / radarRoot.unitSize
+                ctx.scale(k, k)
+                radarRoot.paintOverlay(ctx)
                 ctx.restore()
               }
             }
