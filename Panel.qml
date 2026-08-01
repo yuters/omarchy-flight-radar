@@ -31,6 +31,7 @@ Panel {
   readonly property bool overheadKnown: watchEnabled || opened
 
   property bool settingsOpen: false
+  property bool centreFieldsLoaded: false
   property string settingsNotice: ""
   property bool settingsNoticeIsError: false
   property bool credentialsSaving: false
@@ -222,12 +223,14 @@ Panel {
     userConfig = (parsed && typeof parsed === "object") ? parsed : ({})
   }
 
-  function saveConfig(key, value) {
+  function saveConfig(values) {
     var next = ({})
     for (var k in userConfig) next[k] = userConfig[k]
 
-    if (value === null) delete next[key]
-    else next[key] = value
+    for (var key in values) {
+      if (values[key] === null) delete next[key]
+      else next[key] = values[key]
+    }
 
     userConfig = next
     configFile.setText(JSON.stringify(next, null, 2) + "\n")
@@ -254,6 +257,7 @@ Panel {
   }
 
   function loadCentreFields() {
+    centreFieldsLoaded = true
     latitudeField.text = hasManualCentre ? String(latitudeSetting) : ""
     longitudeField.text = hasManualCentre ? String(longitudeSetting) : ""
     rangeField.field.value = rangeNm
@@ -262,62 +266,67 @@ Panel {
     setNotice("", false)
   }
 
-  function commitCentre() {
+  // The coordinate half of an edit: {} for "leave them alone", null when the
+  // fields do not parse. Empty fields only mean "clear" once they have been
+  // filled from the stored values.
+  function centreEdit() {
+    if (!centreFieldsLoaded) return ({})
+
     var latText = String(latitudeField.text).replace(/^\s+|\s+$/g, "")
     var lonText = String(longitudeField.text).replace(/^\s+|\s+$/g, "")
 
-    if (latText === "" && lonText === "") {
-      if (hasManualCentre) useApproximateLocation()
-      return true
-    }
+    if (latText === "" && lonText === "")
+      return hasManualCentre ? { latitude: null, longitude: null } : ({})
 
     var lat = parseFloat(latText)
     var lon = parseFloat(lonText)
 
     if (!isFinite(lat) || !isFinite(lon)) {
       setNotice("Enter both a latitude and a longitude, or clear both to locate automatically.", true)
-      return false
+      return null
     }
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
       setNotice("Latitude must be between -90 and 90, longitude between -180 and 180.", true)
-      return false
+      return null
     }
 
     if (hasManualCentre
         && Math.abs(lat - parseFloat(String(latitudeSetting))) < 1e-9
-        && Math.abs(lon - parseFloat(String(longitudeSetting))) < 1e-9) return true
+        && Math.abs(lon - parseFloat(String(longitudeSetting))) < 1e-9) return ({})
 
-    saveConfig("latitude", lat)
-    saveConfig("longitude", lon)
-    return true
+    return { latitude: lat, longitude: lon }
   }
 
   function saveSettings() {
-    if (!commitCentre()) return
-    saveConfig("rangeNm", rangeField.field.value)
-    saveConfig("overheadRadiusNm", overheadField.field.value)
-    saveConfig("overheadCeilingFt", ceilingField.field.value)
+    var edit = centreEdit()
+    if (edit === null) return
+
+    edit.rangeNm = rangeField.field.value
+    edit.overheadRadiusNm = overheadField.field.value
+    edit.overheadCeilingFt = ceilingField.field.value
+
+    if (edit.latitude === null) autoResolved = false
+    saveConfig(edit)
     setNotice("Settings saved.", false)
   }
 
   function resetSettings() {
-    saveConfig("rangeNm", null)
-    saveConfig("overheadRadiusNm", null)
-    saveConfig("overheadCeilingFt", null)
+    latitudeField.text = ""
+    longitudeField.text = ""
+    autoResolved = false
+
+    saveConfig({
+      latitude: null,
+      longitude: null,
+      rangeNm: null,
+      overheadRadiusNm: null,
+      overheadCeilingFt: null
+    })
+
     rangeField.field.value = rangeNm
     overheadField.field.value = overheadRadiusNm
     ceilingField.field.value = overheadCeilingFt
-    useApproximateLocation()
-  }
-
-  function useApproximateLocation() {
-    setNotice("", false)
-    latitudeField.text = ""
-    longitudeField.text = ""
-    saveConfig("latitude", null)
-    saveConfig("longitude", null)
-    autoResolved = false
-    resolveAutoLocation()
+    setNotice("Settings reset.", false)
   }
 
   function resolveAutoLocation() {
@@ -1104,10 +1113,10 @@ Panel {
 
           Text {
             width: parent.width
-            text: (radarRoot.version === "" ? "" : "v" + radarRoot.version + " · ")
-              + (radarRoot.lastUpdatedAt !== ""
+            text: (radarRoot.lastUpdatedAt !== ""
                 ? "Updated " + radarRoot.lastUpdatedAt + " · " : "")
               + "R refresh · S settings"
+              + (radarRoot.version === "" ? "" : " · v" + radarRoot.version)
             color: radarRoot.dim
             font.family: radarRoot.fontFamily
             font.pixelSize: Style.font.caption
