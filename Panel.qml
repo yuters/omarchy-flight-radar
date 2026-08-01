@@ -1182,7 +1182,7 @@ Panel {
                   font.family: radarRoot.fontFamily
                   Keys.onEscapePressed: keyCatcher.forceActiveFocus()
                   KeyNavigation.tab: longitudeField
-                  KeyNavigation.backtab: clientSecretField
+                  KeyNavigation.backtab: radarRoot.hasCredentials ? longitudeField : clientSecretField
                   onAccepted: radarRoot.saveSettings()
                 }
               }
@@ -1205,7 +1205,7 @@ Panel {
                   foreground: radarRoot.foreground
                   font.family: radarRoot.fontFamily
                   Keys.onEscapePressed: keyCatcher.forceActiveFocus()
-                  KeyNavigation.tab: clientIdField
+                  KeyNavigation.tab: radarRoot.hasCredentials ? latitudeField : clientIdField
                   KeyNavigation.backtab: latitudeField
                   onAccepted: radarRoot.saveSettings()
                 }
@@ -1307,6 +1307,7 @@ Panel {
 
             Text {
               width: parent.width
+              visible: !radarRoot.hasCredentials
               text: "OpenSky account (optional) — 4000 requests a day instead of 400. "
                 + "<a href=\"https://opensky-network.org/\">Create an account</a>"
               textFormat: Text.StyledText
@@ -1329,6 +1330,7 @@ Panel {
             }
 
             Grid {
+              visible: !radarRoot.hasCredentials
               columns: 2
               columnSpacing: Style.space(12)
               rowSpacing: Style.space(10)
@@ -1392,9 +1394,28 @@ Panel {
                 onClicked: radarRoot.saveCredentials()
               }
 
+            }
+
+            Item {
+              width: parent.width
+              visible: radarRoot.hasCredentials
+              implicitHeight: Math.max(credentialsState.implicitHeight, removeCredentials.implicitHeight)
+              height: implicitHeight
+
+              Text {
+                id: credentialsState
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                text: "✓  " + (radarRoot.authenticated ? "Authenticated" : "Credentials saved")
+                color: radarRoot.foreground
+                font.family: radarRoot.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+
               Button {
-                width: settingsColumn.cellWidth
-                visible: radarRoot.hasCredentials
+                id: removeCredentials
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 text: "Remove credentials"
                 tooltipText: "Delete the credentials and go back to anonymous access"
                 enabled: !radarRoot.credentialsSaving
