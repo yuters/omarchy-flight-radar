@@ -44,14 +44,9 @@ publication built on that data cite:
 and, to refer to the site itself, The OpenSky Network,
 [opensky-network.org](https://opensky-network.org).
 
-**Read the terms before you rely on this.** OpenSky licenses the data for
-non-profit research and education, and as they are written today, *operational*
-use of the REST API — integration into a live product, service or automated
-system — requires a written licence from them regardless of whether you are a
-non-profit. A desktop widget that polls the API on a timer is plausibly
-operational use. Any commercial or for-profit use, contractors included, needs a
-licence outright. Contact OpenSky at contact[at]opensky-network.org if either
-applies to you.
+The data is licensed for non-profit research and education. Commercial or
+for-profit use needs a written licence from OpenSky — contact
+contact[at]opensky-network.org.
 
 OpenSky also blocks some IP ranges, cloud providers among them, in response to
 misuse; if the radar cannot reach the API from a hosted environment, that is
