@@ -152,6 +152,25 @@ Panel {
 
   property bool hasCredentials: false
 
+  component KeyCap: BorderSurface {
+    property alias label: keyText.text
+
+    implicitWidth: Math.max(keyText.implicitWidth + Style.space(8), implicitHeight)
+    implicitHeight: keyText.implicitHeight + Style.space(4)
+    color: "transparent"
+    borderSpec: Border.flat(Qt.darker(radarRoot.foreground, 1.5), "1 1 2 1")
+    radius: Style.space(3)
+
+    Text {
+      id: keyText
+      anchors.centerIn: parent
+      color: radarRoot.dim
+      font.family: radarRoot.fontFamily
+      font.pixelSize: Style.font.caption
+      font.bold: true
+    }
+  }
+
   function setNotice(text, isError) {
     settingsNotice = text
     settingsNoticeIsError = isError === true
@@ -1129,14 +1148,37 @@ Panel {
             }
           }
 
-          Text {
-            width: parent.width
-            text: "R refresh · S settings"
-            color: radarRoot.dim
-            font.family: radarRoot.fontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.Wrap
-            horizontalAlignment: Text.AlignRight
+          Row {
+            anchors.right: parent.right
+            spacing: Style.space(6)
+
+            KeyCap { label: "R" }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: "refresh"
+              color: radarRoot.dim
+              font.family: radarRoot.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: "·"
+              color: radarRoot.dim
+              font.family: radarRoot.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            KeyCap { label: "S" }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: "settings"
+              color: radarRoot.dim
+              font.family: radarRoot.fontFamily
+              font.pixelSize: Style.font.caption
+            }
           }
 
           Text {
@@ -1158,22 +1200,30 @@ Panel {
             readonly property real cellWidth: Math.floor((width - Style.space(12)) / 2)
             readonly property real thirdWidth: Math.floor((width - Style.space(12) * 2) / 3)
 
+            PanelSeparator {
+              foreground: radarRoot.foreground
+            }
+
             PanelSectionHeader {
               text: "SETTINGS"
               foreground: radarRoot.foreground
               fontFamily: radarRoot.fontFamily
             }
 
-            Grid {
-              columns: 2
-              columnSpacing: Style.space(12)
-              rowSpacing: Style.space(10)
+            Row {
+              id: centreRow
+              width: parent.width
+              spacing: Style.space(12)
+
+              readonly property real fieldWidth:
+                Math.floor((width - Style.space(12) * 2 - locateButton.implicitWidth) / 2)
 
               Column {
-                width: settingsColumn.cellWidth
+                width: centreRow.fieldWidth
                 spacing: Style.space(3)
 
                 Text {
+                  id: latitudeLabel
                   text: "Latitude"
                   color: radarRoot.dim
                   font.family: radarRoot.fontFamily
@@ -1194,7 +1244,7 @@ Panel {
               }
 
               Column {
-                width: settingsColumn.cellWidth
+                width: centreRow.fieldWidth
                 spacing: Style.space(3)
 
                 Text {
@@ -1216,15 +1266,29 @@ Panel {
                   onAccepted: radarRoot.saveSettings()
                 }
               }
-            }
 
-            Text {
-              width: parent.width
-              text: "Leave both coordinates blank to locate automatically"
-              color: radarRoot.dim
-              font.family: radarRoot.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.Wrap
+              Column {
+                spacing: Style.space(3)
+
+                Item {
+                  width: 1
+                  height: latitudeLabel.implicitHeight
+                }
+
+                Button {
+                  id: locateButton
+                  text: String.fromCodePoint(0xF05B)
+                  tooltipText: "Use geolocation"
+                  bordered: true
+                  foreground: radarRoot.foreground
+                  fontFamily: radarRoot.fontFamily
+                  fontSize: Style.font.body
+                  onClicked: {
+                    latitudeField.text = ""
+                    longitudeField.text = ""
+                  }
+                }
+              }
             }
 
             Grid {
