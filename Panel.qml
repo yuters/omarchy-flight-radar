@@ -60,6 +60,7 @@ Panel {
   readonly property string radarGlyph: String.fromCodePoint(0xF0437)   // nf-md-radar
 
   property string version: ""
+  property string repository: ""
 
   readonly property var latitudeSetting: conf("latitude", null)
   readonly property var longitudeSetting: conf("longitude", null)
@@ -882,9 +883,12 @@ Panel {
 
     onLoaded: {
       try {
-        radarRoot.version = String(JSON.parse(text()).version || "")
+        var manifest = JSON.parse(text())
+        radarRoot.version = String(manifest.version || "")
+        radarRoot.repository = String(manifest.repository || manifest.homepage || "")
       } catch (e) {
         radarRoot.version = ""
+        radarRoot.repository = ""
       }
     }
   }
@@ -1396,10 +1400,28 @@ Panel {
               width: parent.width
               horizontalAlignment: Text.AlignRight
               visible: radarRoot.version !== ""
-              text: "Flight Radar v" + radarRoot.version
+              text: {
+                var label = "Flight Radar v" + radarRoot.version
+                return radarRoot.repository === ""
+                  ? label
+                  : "<a href=\"" + radarRoot.repository + "\">" + label + "</a>"
+              }
+              textFormat: Text.StyledText
               color: radarRoot.dim
+              linkColor: radarRoot.dim
               font.family: radarRoot.fontFamily
               font.pixelSize: Style.font.caption
+
+              onLinkActivated: function(link) {
+                Quickshell.execDetached(["omarchy-launch-browser", link])
+                radarRoot.close()
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.NoButton
+                cursorShape: parent.hoveredLink !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+              }
             }
           }
 
