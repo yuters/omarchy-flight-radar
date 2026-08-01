@@ -216,7 +216,7 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, parsed))
 }
 
-function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, frozenAt) {
+function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, held) {
   var contacts = []
   var outer = size / 2 - 1
 
@@ -224,9 +224,15 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
     var tracked = trackedById[icao]
     if (tracked.state.onGround) continue
 
-    var at = (frozenAt && frozenAt[icao] !== undefined) ? frozenAt[icao] : now
-    var position = displayPosition(tracked, at)
+    var position = displayPosition(tracked, now)
     var point = project(position.lat, position.lon, centreLat, centreLon, radiusDeg, size)
+    var track = tracked.state.trueTrack
+
+    var hold = held ? held[icao] : null
+    if (hold) {
+      point = { x: hold.x, y: hold.y }
+      track = hold.trueTrack
+    }
 
     var centre = size / 2 - 1
     var offsetX = point.x - centre
@@ -241,7 +247,7 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
       callsign: tracked.state.callsign !== "" ? tracked.state.callsign : tracked.state.icao24.toUpperCase(),
       x: point.x,
       y: point.y,
-      trueTrack: tracked.state.trueTrack,
+      trueTrack: track,
       velocity: tracked.state.velocity,
       verticalRate: tracked.state.verticalRate,
       altitude: altitude,

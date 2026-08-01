@@ -40,7 +40,7 @@ Panel {
   property real epochMs: 0
 
   property var litAt: ({})
-  property var paintedAt: ({})
+  property var heldPositions: ({})
   property real prevSweepAngle: -1
 
   readonly property real sweepRadiansPerMs: 1 / 3000
@@ -393,11 +393,11 @@ Panel {
 
   function snapPositions() {
     for (var icao in trackedById) trackedById[icao].blendActive = false
-    paintedAt = ({})
+    heldPositions = ({})
   }
 
   function sweptPositions() {
-    return showSweep ? paintedAt : null
+    return showSweep ? heldPositions : null
   }
 
   function mergeAircraft(aircraft) {
@@ -428,11 +428,11 @@ Panel {
     }
     litAt = keptGlow
 
-    var keptPainted = ({})
-    for (var painted in paintedAt) {
-      if (next[painted] !== undefined) keptPainted[painted] = paintedAt[painted]
+    var keptHeld = ({})
+    for (var heldIcao in heldPositions) {
+      if (next[heldIcao] !== undefined) keptHeld[heldIcao] = heldPositions[heldIcao]
     }
-    paintedAt = keptPainted
+    heldPositions = keptHeld
   }
 
   function rebuildContacts() {
@@ -567,7 +567,11 @@ Panel {
 
       if (Math.floor((current - angle) / twoPi) > Math.floor((prevSweepAngle - angle) / twoPi)) {
         litAt[contact.icao24] = now
-        paintedAt[contact.icao24] = now
+        heldPositions[contact.icao24] = {
+          x: contact.x,
+          y: contact.y,
+          trueTrack: contact.trueTrack
+        }
       }
     }
 
