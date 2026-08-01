@@ -42,6 +42,8 @@ Panel {
 
   property var litAt: ({})
   property var heldPositions: ({})
+  property var drawn: []
+  property real drawnAt: -1
   property real prevSweepAngle: -1
 
   readonly property real sweepRadiansPerMs: 1 / 3000
@@ -469,6 +471,7 @@ Panel {
       if (next[heldIcao] !== undefined) keptHeld[heldIcao] = heldPositions[heldIcao]
     }
     heldPositions = keptHeld
+    drawnAt = -1
   }
 
   function rebuildContacts() {
@@ -485,6 +488,19 @@ Panel {
     close()
   }
 
+  // One projection per animation frame, shared by the canvas and the hit test:
+  // cursorShape re-evaluates on every pointer move, which otherwise reprojected
+  // every aircraft to decide which cursor to draw.
+  function drawnContacts() {
+    var now = frameNow > 0 ? frameNow : Date.now()
+    if (drawnAt === now) return drawn
+
+    drawnAt = now
+    drawn = RadarModel.buildContacts(trackedById, now,
+      centreLat, centreLon, radiusDeg, unitSize, sweptPositions())
+    return drawn
+  }
+
   function contactAtCanvas(canvasX, canvasY, canvasSize) {
     if (canvasSize <= 0) return null
 
@@ -492,9 +508,7 @@ Panel {
     var ux = canvasX / scale
     var uy = canvasY / scale
 
-    var visible = RadarModel.buildContacts(trackedById,
-      frameNow > 0 ? frameNow : Date.now(),
-      centreLat, centreLon, radiusDeg, unitSize, sweptPositions())
+    var visible = drawnContacts()
 
     var best = null
     var bestDistance = 9      // units; a little larger than the triangle itself
@@ -624,6 +638,7 @@ Panel {
     }
 
     prevSweepAngle = current
+    drawnAt = -1
   }
 
   function contactGlow(icao24, now) {
@@ -785,8 +800,7 @@ Panel {
     paintRing(ctx, centre, centre, (outer / 3) * 2, ringMidColor)
     paintRing(ctx, centre, centre, outer / 3, ringInnerColor)
 
-    var visible = RadarModel.buildContacts(trackedById, now,
-      centreLat, centreLon, radiusDeg, unitSize, sweptPositions())
+    var visible = drawnContacts()
 
     var overheadRing = RadarModel.overheadRingUnits(overheadRadiusNm, radiusDeg, unitSize)
     if (overheadRing >= 3 && overheadRing < outer)
