@@ -284,8 +284,12 @@ Panel {
       parsed = {}
     }
     userConfig = (parsed && typeof parsed === "object") ? parsed : ({})
+
+    var first = !configLoaded
     configLoaded = true
+
     if (opened && !centreFieldsLoaded) loadCentreFields()
+    if (first && !hasManualCentre) resolveAutoLocation()
   }
 
   function saveConfig(values) {
@@ -429,8 +433,12 @@ Panel {
 
   // `locate` caches its fix for six hours, so a lookup the user asked for has
   // to say so or a move to another network keeps resolving to the old place.
+  //
+  // Nothing happens before settings.json has arrived: until then every stored
+  // coordinate reads as absent, and someone who set a centre precisely to avoid
+  // IP geolocation would have their address sent off anyway.
   function resolveAutoLocation(force) {
-    if (hasManualCentre || locateProcess.running) return
+    if (!configLoaded || hasManualCentre || locateProcess.running) return
     locateProcess.command = force === true
       ? ["bash", locatePath, "--refresh"]
       : ["bash", locatePath]
@@ -1036,7 +1044,6 @@ Panel {
   Component.onCompleted: {
     epochMs = Date.now()
     checkCredentials()
-    if (!hasManualCentre) resolveAutoLocation()
   }
 
   onScopeTintChanged: {
