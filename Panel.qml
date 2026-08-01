@@ -48,6 +48,7 @@ Panel {
   property real prevSweepAngle: -1
 
   readonly property real sweepRadiansPerMs: 1 / 3000
+  readonly property real sweepDegrees: (frameNow - epochMs) * sweepRadiansPerMs * 180 / Math.PI
   readonly property real sweepPeriodMs: Math.PI * 2 / sweepRadiansPerMs
 
   // The fan's bright edge sits at maximum perpendicular offset, so it leads the
@@ -708,6 +709,20 @@ Panel {
     ctx.stroke()
   }
 
+  // Painted once pointing right and turned by a transform: rotating a finished
+  // texture is the GPU's job, and 21 strokes a frame was the CPU's.
+  function paintFan(ctx) {
+    var centre = unitSize / 2 - 1
+    var outer = unitSize / 2 - 1
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(centre, centre, outer, 0, Math.PI * 2)
+    ctx.clip()
+    paintSweep(ctx, centre, centre, 0, outer)
+    ctx.restore()
+  }
+
   function updateSweepHits() {
     if (!showSweep || !opened) return
 
@@ -908,11 +923,6 @@ Panel {
     ctx.arc(centre, centre, outer, 0, Math.PI * 2)
     ctx.clip()
 
-    ctx.fillStyle = scopeBackground
-    ctx.fillRect(0, 0, unitSize, unitSize)
-
-    if (showSweep) paintSweep(ctx, centre, centre, (now - epochMs) / 3000.0, outer)
-
     var visible = drawnContacts()
 
     var glows = []
@@ -966,7 +976,10 @@ Panel {
     if (!hasManualCentre) resolveAutoLocation()
   }
 
-  onScopeTintChanged: repaintScope()
+  onScopeTintChanged: {
+    repaintScope()
+    fan.requestPaint()
+  }
   onScopeBackgroundChanged: repaintScope()
   onRadiusDegChanged: repaintScope()
   onOverheadRadiusNmChanged: overlay.requestPaint()
@@ -1686,6 +1699,42 @@ Panel {
             anchors.horizontalCenter: parent.horizontalCenter
             width: radarRoot.scopeSize
             height: radarRoot.scopeSize
+
+            // Matches the circle the scope is painted into: centred on
+            // unitSize / 2 - 1 with the same radius, not on the item's centre.
+            Rectangle {
+              width: parent.width * (radarRoot.unitSize - 2) / radarRoot.unitSize
+              height: width
+              radius: width / 2
+              color: radarRoot.scopeBackground
+            }
+
+            Canvas {
+              id: fan
+              anchors.fill: parent
+              visible: radarRoot.showSweep
+              renderStrategy: Canvas.Cooperative
+
+              // The scope is drawn about unitSize / 2 - 1, half a unit off the
+              // item's own centre, so the turn is anchored there instead.
+              transform: Rotation {
+                origin.x: fan.width * (radarRoot.unitSize / 2 - 1) / radarRoot.unitSize
+                origin.y: fan.height * (radarRoot.unitSize / 2 - 1) / radarRoot.unitSize
+                angle: radarRoot.sweepDegrees
+              }
+
+              onPaint: {
+                var ctx = getContext("2d")
+                if (!ctx) return
+
+                ctx.reset()
+                ctx.save()
+                var k = width / radarRoot.unitSize
+                ctx.scale(k, k)
+                radarRoot.paintFan(ctx)
+                ctx.restore()
+              }
+            }
 
             Canvas {
               id: scope
