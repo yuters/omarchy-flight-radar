@@ -410,6 +410,7 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
 
     var altitude = tracked.state.baroAltitude !== 0 ? tracked.state.baroAltitude : tracked.state.geoAltitude
     var speed = tracked.state.velocity
+    var callsign = tracked.state.callsign !== "" ? tracked.state.callsign : tracked.state.icao24.toUpperCase()
 
     // A hold is the whole blip as the sweep found it, label included. Letting
     // the altitude tick over while the contact sits where it was painted shows
@@ -418,6 +419,7 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
       drawnLat = hold.lat
       drawnLon = hold.lon
       track = hold.trueTrack
+      if (hold.callsign !== undefined) callsign = hold.callsign
       if (hold.altitude !== undefined) altitude = hold.altitude
       if (hold.velocity !== undefined) speed = hold.velocity
     }
@@ -436,7 +438,7 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
 
     contacts.push({
       icao24: tracked.state.icao24,
-      callsign: tracked.state.callsign !== "" ? tracked.state.callsign : tracked.state.icao24.toUpperCase(),
+      callsign: callsign,
       x: point.x,
       y: point.y,
       lat: drawnLat,

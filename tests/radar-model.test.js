@@ -195,24 +195,27 @@ test("a hold freezes what the label reads, not just where the blip sits", () => 
     centreLat, centreLon, radiusDeg, size)[0]
   const hold = {
     lat: atPaint.lat, lon: atPaint.lon, trueTrack: atPaint.trueTrack,
+    callsign: atPaint.callsign,
     altitude: atPaint.altitude, velocity: atPaint.velocity
   }
 
   // A later fix climbs and accelerates, but the sweep has not been back
   const climbed = radar.parseResponse(JSON.stringify({
     time: 2, authenticated: true,
-    states: [[ "ab1234", "TEST", "Test", 2, 2, -73.2, 45.56, 3000, false, 250, 90, 5, null, 3000, "1234" ]]
+    states: [[ "ab1234", "NEWCALL", "Test", 2, 2, -73.2, 45.56, 3000, false, 250, 90, 5, null, 3000, "1234" ]]
   })).aircraft[0]
   radar.updateTracked(tracked, climbed, now + 20000)
 
   const drawn = radar.buildContacts({ ab1234: tracked }, now + 20000,
     centreLat, centreLon, radiusDeg, size, { ab1234: hold })[0]
+  assert.equal(drawn.callsign, hold.callsign)
   assert.equal(drawn.altitude, hold.altitude)
   assert.equal(drawn.velocity, hold.velocity)
 
   // and the list, which builds without holds, has the new numbers
   const listed = radar.buildContacts({ ab1234: tracked }, now + 20000,
     centreLat, centreLon, radiusDeg, size)[0]
+  assert.equal(listed.callsign, "NEWCALL")
   assert.equal(listed.altitude, 3000)
   assert.equal(listed.velocity, 250)
 })

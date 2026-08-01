@@ -558,6 +558,7 @@ Panel {
         lat: live[i].lat,
         lon: live[i].lon,
         trueTrack: live[i].trueTrack,
+        callsign: live[i].callsign,
         altitude: live[i].altitude,
         velocity: live[i].velocity
       }
@@ -611,6 +612,7 @@ Panel {
     // this it vanished the instant a response omitted it, and reappeared
     // wherever it had got to once the line came round.
     for (var goneIcao in trackedById) {
+      if (!showSweep) continue
       if (next[goneIcao] !== undefined) continue
       if (heldPositions[goneIcao] === undefined) continue
 
@@ -944,6 +946,7 @@ Panel {
           lat: contact.lat,
           lon: contact.lon,
           trueTrack: contact.trueTrack,
+          callsign: contact.callsign,
           altitude: contact.altitude,
           velocity: contact.velocity
         }
