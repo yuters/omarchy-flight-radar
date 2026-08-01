@@ -58,6 +58,8 @@ Panel {
 
   readonly property string radarGlyph: String.fromCodePoint(0xF0437)   // nf-md-radar
 
+  property string version: ""
+
   readonly property var latitudeSetting: conf("latitude", null)
   readonly property var longitudeSetting: conf("longitude", null)
 
@@ -391,7 +393,30 @@ Panel {
 
   function snapPositions() {
     for (var icao in trackedById) trackedById[icao].blendActive = false
-    heldPositions = ({})
+
+    var now = frameNow > 0 ? frameNow : Date.now()
+    var live = RadarModel.buildContacts(trackedById, now,
+      centreLat, centreLon, radiusDeg, unitSize)
+    var seeded = ({})
+    for (var i = 0; i < live.length; i++) {
+      seeded[live[i].icao24] = {
+        lat: live[i].lat,
+        lon: live[i].lon,
+        trueTrack: live[i].trueTrack
+      }
+    }
+    heldPositions = seeded
+  }
+
+  function sweepCrossed(angle, current) {
+    var twoPi = Math.PI * 2
+    return Math.floor((current - angle) / twoPi) > Math.floor((prevSweepAngle - angle) / twoPi)
+  }
+
+  function scopeAngle(x, y) {
+    var centre = unitSize / 2 - 1
+    var angle = Math.atan2(y - centre, x - centre)
+    return angle < 0 ? angle + Math.PI * 2 : angle
   }
 
   function sweptPositions() {
@@ -555,21 +580,33 @@ Panel {
 
     var visible = RadarModel.buildContacts(trackedById, now,
       centreLat, centreLon, radiusDeg, unitSize)
-    var centre = unitSize / 2 - 1
-    var twoPi = Math.PI * 2
+    var inRange = ({})
 
     for (var i = 0; i < visible.length; i++) {
       var contact = visible[i]
-      var angle = Math.atan2(contact.y - centre, contact.x - centre)
-      if (angle < 0) angle += twoPi
+      inRange[contact.icao24] = true
 
-      if (Math.floor((current - angle) / twoPi) > Math.floor((prevSweepAngle - angle) / twoPi)) {
+      if (sweepCrossed(scopeAngle(contact.x, contact.y), current)) {
         litAt[contact.icao24] = now
         heldPositions[contact.icao24] = {
           lat: contact.lat,
           lon: contact.lon,
           trueTrack: contact.trueTrack
         }
+      }
+    }
+
+    // The sweep erases as well as paints: a contact that has left the scope
+    // holds its last blip until the line reaches it, then goes.
+    for (var icao in heldPositions) {
+      if (inRange[icao]) continue
+
+      var hold = heldPositions[icao]
+      var point = RadarModel.project(hold.lat, hold.lon,
+        centreLat, centreLon, radiusDeg, unitSize)
+      if (sweepCrossed(scopeAngle(point.x, point.y), current)) {
+        delete heldPositions[icao]
+        delete litAt[icao]
       }
     }
 
@@ -826,6 +863,21 @@ Panel {
   }
 
   FileView {
+    id: manifestFile
+    path: Qt.resolvedUrl("manifest.json").toString().replace(/^file:\/\//, "")
+    watchChanges: false
+    printErrors: false
+
+    onLoaded: {
+      try {
+        radarRoot.version = String(JSON.parse(text()).version || "")
+      } catch (e) {
+        radarRoot.version = ""
+      }
+    }
+  }
+
+  FileView {
     id: configFile
     path: radarRoot.configPath
     watchChanges: true
@@ -1026,7 +1078,7 @@ Panel {
           spacing: Style.space(12)
 
           PanelHero {
-            title: "Flight Radar"
+            title: radarRoot.version === "" ? "Flight Radar" : "Flight Radar " + radarRoot.version
             meta: radarRoot.lastError !== ""
               ? "Aircraft data unavailable"
               : (radarRoot.initialized

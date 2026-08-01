@@ -230,7 +230,9 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
     var track = tracked.state.trueTrack
 
     // Held in degrees, not pixels, so a hold survives a range or centre change.
+    // With holds in play a contact is only drawn once the sweep has painted it.
     var hold = held ? held[icao] : null
+    if (held && !hold) continue
     if (hold) {
       drawnLat = hold.lat
       drawnLon = hold.lon
