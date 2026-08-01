@@ -11,6 +11,8 @@ Stable inbound tracks are forecast up to ten minutes ahead, with their estimated
 time and distance at closest approach shown in the contact list. An advance alert
 is raised as one is predicted to arrive, in place of the alert on arrival; turn it
 off in the panel settings to be told on arrival instead.
+Alerts observed in the same minute are grouped into one notification, so busy
+airspace stays readable without dropping aircraft.
 
 ![Flight Radar](preview.png)
 

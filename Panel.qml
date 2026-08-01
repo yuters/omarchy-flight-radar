@@ -29,6 +29,7 @@ Panel {
 
   property var overheadIds: ({})
   property var notifiedAt: ({})
+  property var pendingNotifications: []
   property int overheadCount: 0
   readonly property bool overheadKnown: watchEnabled || opened
 
@@ -755,18 +756,32 @@ Panel {
     return best
   }
 
-  function sendNotification(contact) {
-    var text = RadarModel.notificationText(contact, aviationUnits)
+  function sendDesktopNotification(text) {
     Quickshell.execDetached(["omarchy-notification-send",
       "--app-name", "radar", "-u", "low", "-g", radarGlyph,
       text.headline, text.body])
   }
 
-  function sendForecastNotification(contact) {
-    var text = RadarModel.forecastNotificationText(contact, aviationUnits)
-    Quickshell.execDetached(["omarchy-notification-send",
-      "--app-name", "radar", "-u", "low", "-g", radarGlyph,
-      text.headline, text.body])
+  function queueNotification(contact, forecast, now) {
+    var text = forecast
+      ? RadarModel.forecastNotificationText(contact, aviationUnits)
+      : RadarModel.notificationText(contact, aviationUnits)
+    var first = pendingNotifications.length === 0
+    var next = pendingNotifications.slice()
+    next.push({ headline: text.headline, body: text.body, forecast: forecast })
+    pendingNotifications = next
+    notifiedAt[contact.icao24] = now
+
+    if (!first) return
+    notificationBatchTimer.interval = Math.max(1, 60000 - now % 60000)
+    notificationBatchTimer.start()
+  }
+
+  function flushNotifications() {
+    var queued = pendingNotifications
+    pendingNotifications = []
+    if (queued.length === 0) return
+    sendDesktopNotification(RadarModel.notificationBatchText(queued))
   }
 
   function clearOverhead() {
@@ -807,8 +822,7 @@ Panel {
       var last = notifiedAt[contact.icao24] || 0
       var forecastedUntil = activeForecastAlerts[contact.icao24] || 0
       if (notifyEnabled && now >= forecastedUntil && now - last > notifyCooldownMs) {
-        notifiedAt[contact.icao24] = now
-        sendNotification(contact)
+        queueNotification(contact, false, now)
       }
     }
 
@@ -820,9 +834,8 @@ Panel {
       var forecastLast = notifiedAt[forecast.icao24] || 0
       if (now - forecastLast <= notifyCooldownMs) continue
 
-      notifiedAt[forecast.icao24] = now
+      queueNotification(forecast, true, now)
       activeForecastAlerts[forecast.icao24] = now + forecastPassDedupeMs
-      sendForecastNotification(forecast)
     }
 
     overheadIds = nextIds
@@ -1178,6 +1191,13 @@ Panel {
       keyCatcher.forceActiveFocus()
       scopeScroll.contentY = 0
     })
+  }
+
+  Timer {
+    id: notificationBatchTimer
+    interval: 60000
+    repeat: false
+    onTriggered: radarRoot.flushNotifications()
   }
 
   Timer {
@@ -1662,7 +1682,6 @@ Panel {
               id: forecastNotifyToggle
               width: parent.width
               label: "Advance flyby alerts"
-              description: "Notify once when a stable track is predicted to enter the overhead radius within 10 minutes, in place of the alert on arrival."
               checked: radarRoot.forecastNotifyDraft
               foreground: radarRoot.foreground
               accent: radarRoot.scopeTint

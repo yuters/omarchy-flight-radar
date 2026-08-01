@@ -131,3 +131,20 @@ test("forecast qualification respects the overhead ring and ceiling", () => {
   assert.deepEqual(forecasts.map(contact => contact.icao24), ["sooner", "later"])
   assert.equal(radar.forecastText(forecasts[0], true), "INBOUND · 2 min · closest 0.5nm")
 })
+
+test("notification batches preserve every aircraft", () => {
+  const alerts = [
+    { headline: "FIRST approaching overhead", body: "Closest in 2 min", forecast: true },
+    { headline: "SECOND approaching overhead", body: "Closest in 4 min", forecast: true }
+  ]
+
+  const batch = radar.notificationBatchText(alerts)
+
+  assert.equal(batch.headline, "2 aircraft approaching overhead")
+  assert.match(batch.body, /FIRST approaching overhead · Closest in 2 min/)
+  assert.match(batch.body, /SECOND approaching overhead · Closest in 4 min/)
+  assert.deepEqual(radar.notificationBatchText([alerts[0]]), {
+    headline: alerts[0].headline,
+    body: alerts[0].body
+  })
+})

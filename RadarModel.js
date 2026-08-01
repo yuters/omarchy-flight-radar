@@ -546,6 +546,27 @@ function forecastNotificationText(contact, useAviationUnits) {
   }
 }
 
+function notificationBatchText(notifications) {
+  if (!notifications || notifications.length === 0) return { headline: "", body: "" }
+  if (notifications.length === 1)
+    return { headline: notifications[0].headline, body: notifications[0].body }
+
+  var forecastCount = 0
+  var lines = []
+  for (var i = 0; i < notifications.length; i++) {
+    if (notifications[i].forecast) forecastCount++
+    lines.push(notifications[i].headline + " · " + notifications[i].body)
+  }
+
+  var headline = notifications.length + " aircraft alerts"
+  if (forecastCount === notifications.length)
+    headline = notifications.length + " aircraft approaching overhead"
+  if (forecastCount === 0)
+    headline = notifications.length + " aircraft overhead"
+
+  return { headline: headline, body: lines.join("\n") }
+}
+
 function compassPoint(bearing) {
   var points = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                 "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
@@ -600,6 +621,7 @@ if (typeof module !== "undefined") {
     formatForecastEta: formatForecastEta,
     forecastText: forecastText,
     forecastNotificationText: forecastNotificationText,
+    notificationBatchText: notificationBatchText,
     compassPoint: compassPoint,
     verticalArrow: verticalArrow,
     rangeLabel: rangeLabel
