@@ -189,7 +189,8 @@ Panel {
   // shell.json write rebuilds every bar widget, which would tear the panel down
   // mid-edit and discard all tracked aircraft. Keys set in shell.json still win,
   // so `omarchy bar set` keeps working for the rest.
-  readonly property string configPath: (StandardPaths.writableLocation(StandardPaths.ConfigLocation)
+  readonly property string configPath: Qt.resolvedUrl("settings.json").toString().replace(/^file:\/\//, "")
+  readonly property string legacyConfigPath: (StandardPaths.writableLocation(StandardPaths.ConfigLocation)
     .toString().replace(/^file:\/\//, "")) + "/omarchy/radar.json"
 
   property var userConfig: ({})
@@ -209,6 +210,13 @@ Panel {
       parsed = {}
     }
     userConfig = (parsed && typeof parsed === "object") ? parsed : ({})
+  }
+
+  function adoptLegacyConfig(raw) {
+    applyUserConfig(raw)
+    configFile.setText(JSON.stringify(userConfig, null, 2) + "\n")
+    legacyCleanup.command = ["bash", "-c", "rm -f \"$1\"", "_", legacyConfigPath]
+    legacyCleanup.running = true
   }
 
   function saveConfig(key, value) {
@@ -823,8 +831,24 @@ Panel {
     printErrors: false
 
     onLoaded: radarRoot.applyUserConfig(text())
-    onLoadFailed: radarRoot.applyUserConfig("{}")   // absent on first run
+    onLoadFailed: legacyConfigFile.reload()
     onFileChanged: reload()
+  }
+
+  FileView {
+    id: legacyConfigFile
+    path: radarRoot.legacyConfigPath
+    watchChanges: false
+    printErrors: false
+
+    onLoaded: radarRoot.adoptLegacyConfig(text())
+    onLoadFailed: radarRoot.applyUserConfig("{}")
+  }
+
+  Process {
+    id: legacyCleanup
+    running: false
+    command: []
   }
 
   Process {
