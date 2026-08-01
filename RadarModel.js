@@ -192,6 +192,20 @@ function boundingBox(centreLat, centreLon, radiusDeg) {
   }
 }
 
+// OpenSky bills /states/all by bounding-box area: 1 credit up to 25 square
+// degrees, then 2, 3 and 4 as it crosses 100 and 400.
+function boxAreaSqDeg(box) {
+  return Math.abs(box.lamax - box.lamin) * Math.abs(box.lomax - box.lomin)
+}
+
+function requestCredits(box) {
+  var area = boxAreaSqDeg(box)
+  if (area <= 25) return 1
+  if (area <= 100) return 2
+  if (area <= 400) return 3
+  return 4
+}
+
 function clampLat(value) {
   return Math.max(-90, Math.min(90, value))
 }
@@ -364,6 +378,8 @@ if (typeof module !== "undefined") {
     distanceKm: distanceKm,
     bearingDeg: bearingDeg,
     boundingBox: boundingBox,
+    boxAreaSqDeg: boxAreaSqDeg,
+    requestCredits: requestCredits,
     rangeNmToDeg: rangeNmToDeg,
     rangeDegToNm: rangeDegToNm,
     clampNumber: clampNumber,

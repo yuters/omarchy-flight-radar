@@ -107,10 +107,16 @@ Panel {
   readonly property int notifyCooldownMs: Math.round(RadarModel.clampNumber(setting("notifyCooldownMin", 10), 1, 240, 10)) * 60000
   readonly property int watchIntervalSec: Math.round(RadarModel.clampNumber(setting("watchIntervalSec", 60), 30, 900, 60))
 
-  // Anonymous access allows 400 requests/day. Until a fetch proves credentials
-  // work, never poll faster than that or a day's quota is gone by lunch.
-  readonly property int anonymousFloorMs: 240000
-  readonly property int minIntervalMs: authenticated ? 15000 : anonymousFloorMs
+  readonly property var queryBox: RadarModel.boundingBox(centreLat, centreLon, radiusDeg)
+  readonly property int requestCredits: RadarModel.requestCredits(queryBox)
+
+  // OpenSky bills by bounding-box area against a daily balance — 400 credits
+  // anonymously, 4000 with an account — so the floor is whatever spends a day's
+  // worth evenly. The rest of the balance covers refreshes asked for by hand.
+  // Until a fetch proves the credentials work, the anonymous figure applies.
+  readonly property int dailyCredits: authenticated ? 4000 : 400
+  readonly property int minIntervalMs:
+    Math.ceil(requestCredits * 86400000 / (dailyCredits * 0.85))
   readonly property int pollIntervalMs: limitReached ? 900000 : Math.max(
     opened ? refreshIntervalMs : watchIntervalSec * 1000, minIntervalMs)
 
@@ -443,7 +449,7 @@ Panel {
     lastFetchAt = now
     refreshing = true
 
-    var box = RadarModel.boundingBox(centreLat, centreLon, radiusDeg)
+    var box = queryBox
     fetchProcess.command = ["bash", helperPath,
       box.lamin.toFixed(6), box.lomin.toFixed(6), box.lamax.toFixed(6), box.lomax.toFixed(6)]
     fetchProcess.running = true
