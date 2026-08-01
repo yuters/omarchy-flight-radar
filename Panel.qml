@@ -1182,10 +1182,18 @@ Panel {
   onOpenedChanged: {
     if (!opened) {
       settingsOpen = false
+
+      // Leave nothing drawn behind: by the next opening every blip is stale,
+      // and the canvas still holds the last frame it painted. Blank is honest,
+      // and the snap on the way back in reads as the scope filling rather than
+      // as every contact moving at once.
+      heldPositions = ({})
+      litAt = ({})
+      drawnAt = -1
+      repaintScope()
       return
     }
     frameNow = Date.now()
-    snapOnNextFix = true
     snapPositions()
     refresh(false)
     rebuildContacts()
