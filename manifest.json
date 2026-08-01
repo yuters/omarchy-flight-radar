@@ -37,7 +37,7 @@
       "watch": true,
       "watchIntervalSec": 60,
       "notify": true,
-      "forecastNotify": false,
+      "forecastNotify": true,
       "notifyCooldownMin": 10,
       "overheadCeilingFt": 0,
       "sweep": true,
@@ -115,8 +115,8 @@
       {
         "key": "forecastNotify",
         "type": "boolean",
-        "label": "Notify in advance when an aircraft is predicted to pass overhead",
-        "defaultValue": false
+        "label": "Notify in advance when an aircraft is predicted to pass overhead, instead of on arrival",
+        "defaultValue": true
       },
       {
         "key": "notifyCooldownMin",

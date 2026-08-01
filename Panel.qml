@@ -110,7 +110,7 @@ Panel {
 
   readonly property bool watchEnabled: setting("watch", true)
   readonly property bool notifyEnabled: setting("notify", true)
-  readonly property bool forecastNotifyEnabled: conf("forecastNotify", false)
+  readonly property bool forecastNotifyEnabled: conf("forecastNotify", true)
   // Only the scope is ever fetched, so an overhead radius past the range would
   // watch a ring of sky no request covers.
   readonly property real overheadRadiusNm:
@@ -650,7 +650,12 @@ Panel {
     var live = RadarModel.buildContacts(trackedById, Date.now(),
       centreLat, centreLon, radiusDeg, unitSize, null, true)
     contacts = live
-    setForecastContacts(RadarModel.forecastContacts(live, overheadRadiusNm, overheadCeilingFt))
+
+    // Predicting the future from data already declared unavailable would undo
+    // the clearing on the way in; the next good response rebuilds it.
+    if (lastError === "")
+      setForecastContacts(RadarModel.forecastContacts(live, overheadRadiusNm, overheadCeilingFt))
+
     syncContactModel(live)
   }
 
@@ -1657,7 +1662,7 @@ Panel {
               id: forecastNotifyToggle
               width: parent.width
               label: "Advance flyby alerts"
-              description: "Notify once when a stable track is predicted to enter the overhead radius within 10 minutes."
+              description: "Notify once when a stable track is predicted to enter the overhead radius within 10 minutes, in place of the alert on arrival."
               checked: radarRoot.forecastNotifyDraft
               foreground: radarRoot.foreground
               accent: radarRoot.scopeTint

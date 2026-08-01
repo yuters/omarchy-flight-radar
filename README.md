@@ -8,8 +8,9 @@ overhead, and can raise a desktop notification as one arrives. Clicking it opens
 a round scope with contacts drawn as heading triangles, in the colours of your
 active Omarchy theme; clicking a contact opens it on the OpenSky flight map.
 Stable inbound tracks are forecast up to ten minutes ahead, with their estimated
-time and distance at closest approach shown in the contact list. Optional advance
-alerts can be enabled from the panel settings.
+time and distance at closest approach shown in the contact list. An advance alert
+is raised as one is predicted to arrive, in place of the alert on arrival; turn it
+off in the panel settings to be told on arrival instead.
 
 ![Flight Radar](preview.png)
 
