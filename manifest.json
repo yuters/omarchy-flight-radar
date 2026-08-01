@@ -121,11 +121,11 @@
       },
       {
         "key": "overheadRadiusNm",
-        "type": "number",
+        "type": "integer",
         "label": "Overhead radius (nautical miles)",
-        "min": 0.2,
+        "min": 1,
         "max": 60,
-        "step": 0.5,
+        "step": 1,
         "defaultValue": 2
       },
       {

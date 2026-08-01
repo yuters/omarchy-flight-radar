@@ -98,7 +98,7 @@ Panel {
 
   readonly property bool watchEnabled: setting("watch", true)
   readonly property bool notifyEnabled: setting("notify", true)
-  readonly property real overheadRadiusNm: RadarModel.clampNumber(conf("overheadRadiusNm", 2), 0.2, 60, 2)
+  readonly property real overheadRadiusNm: RadarModel.clampNumber(conf("overheadRadiusNm", 2), 1, 60, 2)
   readonly property real overheadCeilingFt: RadarModel.clampNumber(conf("overheadCeilingFt", 0), 0, 60000, 0)
   readonly property int notifyCooldownMs: Math.round(RadarModel.clampNumber(setting("notifyCooldownMin", 10), 1, 240, 10)) * 60000
   readonly property int watchIntervalSec: Math.round(RadarModel.clampNumber(setting("watchIntervalSec", 60), 30, 900, 60))
@@ -272,8 +272,7 @@ Panel {
       : contacts.length + " within " + rangeText
 
     if (overheadCount > 0)
-      return overheadCount + (overheadCount === 1 ? " aircraft overhead" : " aircraft overhead")
-        + " (≤" + overheadText + ") · " + inRange
+      return overheadCount + " aircraft overhead (≤" + overheadText + ") · " + inRange
 
     return inRange.charAt(0).toUpperCase() + inRange.slice(1)
   }
@@ -336,8 +335,8 @@ Panel {
     edit.overheadRadiusNm = overheadField.field.value
     edit.overheadCeilingFt = ceilingField.field.value
 
-    if (edit.latitude === null) autoResolved = false
     saveConfig(edit)
+    if (!hasManualCentre) resolveAutoLocation(true)
     setNotice("Settings saved.", false)
   }
 
@@ -356,15 +355,21 @@ Panel {
       overheadCeilingFt: null
     })
 
+    resolveAutoLocation(true)
+
     rangeField.field.value = rangeNm
     overheadField.field.value = overheadRadiusNm
     ceilingField.field.value = overheadCeilingFt
     setNotice("Settings reset.", false)
   }
 
-  function resolveAutoLocation() {
+  // `locate` caches its fix for six hours, so a lookup the user asked for has
+  // to say so or a move to another network keeps resolving to the old place.
+  function resolveAutoLocation(force) {
     if (hasManualCentre || locateProcess.running) return
-    locateProcess.command = ["bash", locatePath]
+    locateProcess.command = force === true
+      ? ["bash", locatePath, "--refresh"]
+      : ["bash", locatePath]
     locateProcess.running = true
   }
 
@@ -862,8 +867,12 @@ Panel {
   onScopeBackgroundChanged: scope.requestPaint()
 
   onHasManualCentreChanged: {
-    if (!hasManualCentre) resolveAutoLocation()
-    else refresh(true)
+    if (hasManualCentre) {
+      refresh(true)
+      return
+    }
+    autoResolved = false
+    resolveAutoLocation(true)
   }
 
   onOpenedChanged: {
@@ -895,7 +904,7 @@ Panel {
   }
 
   Timer {
-    interval: 3000
+    interval: 10000
     running: radarRoot.watchEnabled || radarRoot.opened
     repeat: true
     onTriggered: radarRoot.evaluateOverhead()
