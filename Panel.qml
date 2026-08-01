@@ -213,8 +213,7 @@ Panel {
 
   // Panel-edited settings go to the plugin's own file, not to shell.json: any
   // shell.json write rebuilds every bar widget, which would tear the panel down
-  // mid-edit and discard all tracked aircraft. Keys set in shell.json still win,
-  // so `omarchy bar set` keeps working for the rest.
+  // mid-edit and discard all tracked aircraft.
   readonly property string configPath: Qt.resolvedUrl("settings.json").toString().replace(/^file:\/\//, "")
 
   property var userConfig: ({})
@@ -229,10 +228,13 @@ Panel {
     return value !== false
   }
 
+  // What the panel saved wins over `omarchy bar set`, which is left as the
+  // starting value for a key the panel has never written. Reset to defaults
+  // drops the panel's copy and hands the key back to shell.json.
   function conf(key, fallback) {
+    if (userConfig && userConfig[key] !== undefined && userConfig[key] !== null) return userConfig[key]
     var fromShell = settings ? settings[key] : undefined
     if (fromShell !== undefined && fromShell !== null) return fromShell
-    if (userConfig && userConfig[key] !== undefined && userConfig[key] !== null) return userConfig[key]
     return fallback
   }
 
