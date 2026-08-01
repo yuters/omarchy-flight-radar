@@ -4,9 +4,10 @@
 #
 # Usage: opensky-fetch <lamin> <lomin> <lamax> <lomax>
 #
-# Prints {"time":…,"authenticated":…,"states":[…]}, or {"error":"…"} — exiting 0
-# either way so the panel can render the reason. A refusal for rate limiting also
-# carries "limited": true.
+# Prints {"time":…,"authenticated":…,"remaining":…,"states":[…]}, or {"error":"…"}
+# — exiting 0 either way so the panel can render the reason. "remaining" is the
+# credit balance OpenSky reports, or null if it said nothing. A refusal for rate
+# limiting carries "limited": true and "retryAfter" in seconds.
 #
 # Credentials are optional (4000 requests/day instead of 400) and live beside
 # this script in <plugin dir>/opensky.json at mode 0600, which .gitignore
@@ -27,7 +28,8 @@ die() {
 }
 
 die_limited() {
-  jq -cn --arg m "$1" '{error: $m, limited: true}'
+  jq -cn --arg m "$1" --argjson retry "${RETRY_AFTER:-null}" \
+    '{error: $m, limited: true, retryAfter: $retry}'
   exit 0
 }
 
@@ -84,18 +86,38 @@ fetch_token() {
 
 RESPONSE=""
 HTTP_CODE=""
+REMAINING=""
+RETRY_AFTER=""
 
+# The body, then the status and the two rate-limit headers, one per line, peeled
+# off the end. Headers rather than a fixed budget: the same account may be
+# feeding another client, and only OpenSky knows what is left. The trailing dot
+# is there because an absent header writes an empty line, and command
+# substitution would strip it along with the newline, shifting every field.
 request_states() {
   local bearer="$1" config raw
   config="url = \"$STATES_URL?$QUERY\""
   [[ -n $bearer ]] && config+=$'\n'"header = \"Authorization: Bearer $bearer\""
-  raw=$(printf '%s\n' "$config" | curl -sS -w '\n%{http_code}' --max-time 20 --config - 2>/dev/null) || {
+  raw=$(printf '%s\n' "$config" | curl -sS --max-time 20 --config - 2>/dev/null \
+    -w '\n%{http_code}\n%header{x-rate-limit-remaining}\n%header{x-rate-limit-retry-after-seconds}\n.') || {
     RESPONSE=""
     HTTP_CODE=""
+    REMAINING=""
+    RETRY_AFTER=""
     return 1
   }
+
+  raw="${raw%$'\n'*}"
+  RETRY_AFTER="${raw##*$'\n'}"
+  raw="${raw%$'\n'*}"
+  REMAINING="${raw##*$'\n'}"
+  raw="${raw%$'\n'*}"
   HTTP_CODE="${raw##*$'\n'}"
   RESPONSE="${raw%$'\n'*}"
+
+  [[ $REMAINING =~ ^[0-9]+$ ]] || REMAINING=""
+  [[ $RETRY_AFTER =~ ^[0-9]+$ ]] || RETRY_AFTER=""
+
   [[ $HTTP_CODE == 2* ]]
 }
 
@@ -124,5 +146,6 @@ authenticated=false
 [[ -n $token ]] && authenticated=true
 
 printf '%s' "$RESPONSE" | jq -c --argjson authed "$authenticated" \
-  '{time: (.time // 0), authenticated: $authed, states: (.states // [])}' 2>/dev/null ||
+  --argjson remaining "${REMAINING:-null}" \
+  '{time: (.time // 0), authenticated: $authed, remaining: $remaining, states: (.states // [])}' 2>/dev/null ||
   die "OpenSky returned a response that could not be parsed"

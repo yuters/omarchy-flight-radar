@@ -24,6 +24,8 @@ Panel {
   property real lastFetchAt: 0
   property bool snapOnNextFix: false
   property bool limitReached: false
+  property int creditsRemaining: -1
+  property real retryAfterMs: 0
 
   property var overheadIds: ({})
   property var notifiedAt: ({})
@@ -117,8 +119,19 @@ Panel {
   readonly property int dailyCredits: authenticated ? 4000 : 400
   readonly property int minIntervalMs:
     Math.ceil(requestCredits * 86400000 / (dailyCredits * 0.85))
-  readonly property int pollIntervalMs: limitReached ? 900000 : Math.max(
-    opened ? refreshIntervalMs : watchIntervalSec * 1000, minIntervalMs)
+  // What OpenSky says is left, spread over the time until it refills, and never
+  // faster than the floor above. The balance is the authority — the same account
+  // may be feeding another client — and it moves with every request, so this
+  // re-reads itself after each one.
+  readonly property int pollIntervalMs: {
+    if (limitReached)
+      return Math.max(60000, Math.min(retryAfterMs > 0 ? retryAfterMs : 900000, 21600000))
+
+    var base = Math.max(opened ? refreshIntervalMs : watchIntervalSec * 1000, minIntervalMs)
+    if (creditsRemaining <= 0) return base
+
+    return Math.max(base, Math.round(msUntilQuotaReset() * requestCredits / creditsRemaining))
+  }
 
   readonly property color scopeTint: Color.accent
 
@@ -135,6 +148,13 @@ Panel {
 
   readonly property color badgeColor: scopeTint
   readonly property color badgeTextColor: Color.background
+
+  // The balance refills daily at 00:00 UTC.
+  function msUntilQuotaReset() {
+    var now = new Date()
+    var reset = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0)
+    return Math.max(60000, reset - now.getTime())
+  }
 
   function tinted(alpha) {
     return Qt.rgba(scopeTint.r, scopeTint.g, scopeTint.b, alpha)
@@ -463,12 +483,15 @@ Panel {
     if (!result.ok) {
       lastError = result.error
       limitReached = result.limited === true
+      retryAfterMs = result.retryAfter > 0 ? result.retryAfter * 1000 : 0
       return
     }
 
     lastError = ""
     limitReached = false
+    retryAfterMs = 0
     authenticated = result.authenticated
+    creditsRemaining = result.remaining
     mergeAircraft(result.aircraft)
     lastUpdatedAt = Qt.formatTime(new Date(), "HH:mm:ss")
     rebuildContacts()

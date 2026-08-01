@@ -40,8 +40,14 @@ function parseAircraft(state) {
   }
 }
 
+function numberOr(value, fallback) {
+  var parsed = parseFloat(value)
+  return isFinite(parsed) ? parsed : fallback
+}
+
 function parseResponse(raw) {
-  var empty = { ok: false, error: "", limited: false, authenticated: false, aircraft: [] }
+  var empty = { ok: false, error: "", limited: false, retryAfter: 0,
+                authenticated: false, remaining: -1, aircraft: [] }
 
   var data
   try {
@@ -59,6 +65,7 @@ function parseResponse(raw) {
   if (data.error) {
     empty.error = String(data.error)
     empty.limited = data.limited === true
+    empty.retryAfter = numberOr(data.retryAfter, 0)
     return empty
   }
 
@@ -79,7 +86,9 @@ function parseResponse(raw) {
     ok: true,
     error: "",
     limited: false,
+    retryAfter: 0,
     authenticated: data.authenticated === true,
+    remaining: numberOr(data.remaining, -1),
     aircraft: aircraft
   }
 }
@@ -368,6 +377,7 @@ if (typeof module !== "undefined") {
   module.exports = {
     parseAircraft: parseAircraft,
     parseResponse: parseResponse,
+    numberOr: numberOr,
     makeTracked: makeTracked,
     updateTracked: updateTracked,
     blendAlpha: blendAlpha,
