@@ -319,7 +319,16 @@ Panel {
     return { latitude: lat, longitude: lon }
   }
 
+  // A SpinBox turns typed text into a value on editingFinished only, and the
+  // panel's buttons never take focus, so an edit has to be committed by hand.
+  function commitNumberFields() {
+    if (rangeField.field.activeFocus || overheadField.field.activeFocus || ceilingField.field.activeFocus)
+      keyCatcher.forceActiveFocus()
+  }
+
   function saveSettings() {
+    commitNumberFields()
+
     var edit = centreEdit()
     if (edit === null) return
 
@@ -333,6 +342,8 @@ Panel {
   }
 
   function resetSettings() {
+    commitNumberFields()
+
     latitudeField.text = ""
     longitudeField.text = ""
     autoResolved = false
