@@ -43,7 +43,8 @@
       "labels": true,
       "triangles": true,
       "aviationUnits": true,
-      "overheadRadiusNm": 2
+      "overheadRadiusNm": 2,
+      "mapZoom": 13
     },
     "schema": [
       {
@@ -160,6 +161,15 @@
         "type": "boolean",
         "label": "Use knots and feet instead of km/h and metres",
         "defaultValue": true
+      },
+      {
+        "key": "mapZoom",
+        "type": "integer",
+        "label": "Zoom level when opening a contact on the OpenSky map",
+        "min": 1,
+        "max": 20,
+        "step": 1,
+        "defaultValue": 13
       }
     ]
   }

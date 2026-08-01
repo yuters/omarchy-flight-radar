@@ -98,6 +98,8 @@ Panel {
   readonly property bool showTriangles: setting("triangles", true)
   readonly property bool aviationUnits: setting("aviationUnits", true)
 
+  readonly property int mapZoom: Math.round(RadarModel.clampNumber(setting("mapZoom", 13), 1, 20, 13))
+
   readonly property bool watchEnabled: setting("watch", true)
   readonly property bool notifyEnabled: setting("notify", true)
   readonly property real overheadRadiusNm: RadarModel.clampNumber(conf("overheadRadiusNm", 2), 0.5, 60, 2)
@@ -599,7 +601,7 @@ Panel {
     if (hex === "") return
 
     Quickshell.execDetached(["omarchy-launch-browser",
-      "https://map.opensky-network.org/?icao=" + hex])
+      "https://map.opensky-network.org/?icao=" + hex + "&zoom=" + mapZoom])
     close()
   }
 
