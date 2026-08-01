@@ -1158,6 +1158,12 @@ Panel {
             readonly property real cellWidth: Math.floor((width - Style.space(12)) / 2)
             readonly property real thirdWidth: Math.floor((width - Style.space(12) * 2) / 3)
 
+            PanelSectionHeader {
+              text: "SETTINGS"
+              foreground: radarRoot.foreground
+              fontFamily: radarRoot.fontFamily
+            }
+
             Grid {
               columns: 2
               columnSpacing: Style.space(12)
@@ -1305,10 +1311,16 @@ Panel {
               foreground: radarRoot.foreground
             }
 
+            PanelSectionHeader {
+              text: "OPENSKY NETWORK ACCOUNT"
+              foreground: radarRoot.foreground
+              fontFamily: radarRoot.fontFamily
+            }
+
             Text {
               width: parent.width
               visible: !radarRoot.hasCredentials
-              text: "OpenSky account (optional) — 4000 requests a day instead of 400. "
+              text: "Optional — 4000 requests a day instead of 400. "
                 + "<a href=\"https://opensky-network.org/\">Create an account</a>"
               textFormat: Text.StyledText
               color: radarRoot.dim
