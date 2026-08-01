@@ -446,6 +446,10 @@ Panel {
   }
 
   function applyAutoLocation(raw) {
+    // A lookup may still be running while the user saves a manual centre.
+    // Manual coordinates win without spending another aircraft-data request.
+    if (hasManualCentre) return
+
     var data
     try {
       data = JSON.parse(String(raw || ""))
@@ -717,7 +721,16 @@ Panel {
       text.headline, text.body])
   }
 
+  function clearOverhead() {
+    overheadIds = ({})
+    overheadCount = 0
+  }
+
   function evaluateOverhead() {
+    // Failed data must not move the badge state forward: doing so could both
+    // show a ghost contact and suppress its real arrival after recovery.
+    if (lastError !== "") return
+
     var now = Date.now()
     var all = RadarModel.buildContacts(trackedById, now,
       centreLat, centreLon, radiusDeg, unitSize)
@@ -731,7 +744,7 @@ Panel {
       if (overheadIds[contact.icao24]) continue      // already counted, not new
 
       var last = notifiedAt[contact.icao24] || 0
-      if (notifyEnabled && lastError === "" && now - last > notifyCooldownMs) {
+      if (notifyEnabled && now - last > notifyCooldownMs) {
         notifiedAt[contact.icao24] = now
         sendNotification(contact)
       }
@@ -1055,6 +1068,10 @@ Panel {
   onOverheadRadiusNmChanged: overlay.requestPaint()
   onCentreLatChanged: repaintScope()
   onCentreLonChanged: repaintScope()
+
+  onLastErrorChanged: {
+    if (lastError !== "") clearOverhead()
+  }
 
   onHasManualCentreChanged: {
     if (hasManualCentre) {
