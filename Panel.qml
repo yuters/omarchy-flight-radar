@@ -31,6 +31,7 @@ Panel {
   readonly property bool overheadKnown: watchEnabled || opened
 
   property bool settingsOpen: false
+  property bool configLoaded: false
   property bool centreFieldsLoaded: false
   property string settingsNotice: ""
   property bool settingsNoticeIsError: false
@@ -98,7 +99,7 @@ Panel {
 
   readonly property bool watchEnabled: setting("watch", true)
   readonly property bool notifyEnabled: setting("notify", true)
-  readonly property real overheadRadiusNm: RadarModel.clampNumber(conf("overheadRadiusNm", 2), 1, 60, 2)
+  readonly property real overheadRadiusNm: RadarModel.clampNumber(conf("overheadRadiusNm", 2), 0.5, 60, 2)
   readonly property real overheadCeilingFt: RadarModel.clampNumber(conf("overheadCeilingFt", 0), 0, 60000, 0)
   readonly property int notifyCooldownMs: Math.round(RadarModel.clampNumber(setting("notifyCooldownMin", 10), 1, 240, 10)) * 60000
   readonly property int watchIntervalSec: Math.round(RadarModel.clampNumber(setting("watchIntervalSec", 60), 30, 900, 60))
@@ -243,6 +244,8 @@ Panel {
       parsed = {}
     }
     userConfig = (parsed && typeof parsed === "object") ? parsed : ({})
+    configLoaded = true
+    if (opened && !centreFieldsLoaded) loadCentreFields()
   }
 
   function saveConfig(values) {
@@ -277,12 +280,31 @@ Panel {
     return inRange.charAt(0).toUpperCase() + inRange.slice(1)
   }
 
+  // A SpinBox counts in whole numbers, so the overhead radius is held in tenths
+  // of a nautical mile and formatted on the way out to step in halves.
+  function toTenths(nm) {
+    return Math.round(nm * 10)
+  }
+
+  function tenthsText(value) {
+    var nm = value / 10
+    return nm % 1 === 0 ? String(nm) : nm.toFixed(1)
+  }
+
+  function tenthsFromText(text) {
+    var nm = parseFloat(String(text).replace(",", "."))
+    if (!isFinite(nm)) return toTenths(overheadRadiusNm)
+    return Math.round(nm * 2) * 5
+  }
+
+  // Filling the fields before settings.json has arrived would show "auto" over
+  // stored coordinates, and saving from there would then clear them for real.
   function loadCentreFields() {
-    centreFieldsLoaded = true
+    centreFieldsLoaded = configLoaded
     latitudeField.text = hasManualCentre ? String(latitudeSetting) : ""
     longitudeField.text = hasManualCentre ? String(longitudeSetting) : ""
     rangeField.field.value = rangeNm
-    overheadField.field.value = overheadRadiusNm
+    overheadField.field.value = toTenths(overheadRadiusNm)
     ceilingField.field.value = overheadCeilingFt
     setNotice("", false)
   }
@@ -332,7 +354,7 @@ Panel {
     if (edit === null) return
 
     edit.rangeNm = rangeField.field.value
-    edit.overheadRadiusNm = overheadField.field.value
+    edit.overheadRadiusNm = overheadField.field.value / 10
     edit.overheadCeilingFt = ceilingField.field.value
 
     saveConfig(edit)
@@ -358,7 +380,7 @@ Panel {
     resolveAutoLocation(true)
 
     rangeField.field.value = rangeNm
-    overheadField.field.value = overheadRadiusNm
+    overheadField.field.value = toTenths(overheadRadiusNm)
     ceilingField.field.value = overheadCeilingFt
     setNotice("Settings reset.", false)
   }
@@ -1334,12 +1356,21 @@ Panel {
                 width: settingsColumn.thirdWidth
                 fieldWidth: settingsColumn.thirdWidth
                 label: "Overhead (nm)"
-                from: 1
-                to: 60
-                stepSize: 1
-                value: Math.round(RadarModel.clampNumber(radarRoot.conf("overheadRadiusNm", 2), 1, 60, 2))
+                from: 5
+                to: 600
+                stepSize: 5
                 foreground: radarRoot.foreground
                 fontFamily: radarRoot.fontFamily
+
+                // The value is loaded here rather than bound, because a
+                // SpinBox formats its text once and the formatter below is
+                // only in place after the bindings have run.
+                Component.onCompleted: {
+                  field.validator = null
+                  field.textFromValue = function(value, locale) { return radarRoot.tenthsText(value) }
+                  field.valueFromText = function(text, locale) { return radarRoot.tenthsFromText(text) }
+                  field.value = radarRoot.toTenths(radarRoot.overheadRadiusNm)
+                }
               }
 
               NumberField {
