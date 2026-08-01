@@ -87,13 +87,13 @@ Panel {
 
   readonly property int refreshIntervalMs: Math.round(RadarModel.clampNumber(setting("refreshIntervalSec", 20), 10, 300, 20)) * 1000
   readonly property int scopeSize: Math.round(RadarModel.clampNumber(setting("scopeSize", 320), 200, 520, 320))
-  readonly property bool showSweep: flag("sweep", true)
-  readonly property bool showLabels: flag("labels", true)
-  readonly property bool showTriangles: flag("triangles", true)
-  readonly property bool aviationUnits: flag("aviationUnits", true)
+  readonly property bool showSweep: setting("sweep", true)
+  readonly property bool showLabels: setting("labels", true)
+  readonly property bool showTriangles: setting("triangles", true)
+  readonly property bool aviationUnits: setting("aviationUnits", true)
 
-  readonly property bool watchEnabled: flag("watch", true)
-  readonly property bool notifyEnabled: flag("notify", true)
+  readonly property bool watchEnabled: setting("watch", true)
+  readonly property bool notifyEnabled: setting("notify", true)
   readonly property real overheadRadiusNm: RadarModel.clampNumber(conf("overheadRadiusNm", 2), 0.2, 60, 2)
   readonly property real overheadCeilingFt: RadarModel.clampNumber(conf("overheadCeilingFt", 0), 0, 60000, 0)
   readonly property int notifyCooldownMs: Math.round(RadarModel.clampNumber(setting("notifyCooldownMin", 10), 1, 240, 10)) * 60000
@@ -195,9 +195,12 @@ Panel {
 
   property var userConfig: ({})
 
-  // `omarchy bar set` stores "false" as a string unless it is given --json.
-  function flag(key, fallback) {
-    var value = setting(key, fallback)
+  // Overrides the base lookup: `omarchy bar set` stores "false" as a string
+  // unless it is given --json, so a boolean setting has to be coerced.
+  function setting(key, fallback) {
+    var value = settings ? settings[key] : undefined
+    if (value === undefined || value === null) return fallback
+    if (typeof fallback !== "boolean") return value
     if (typeof value === "string") return value !== "false" && value !== "0" && value !== ""
     return value !== false
   }
@@ -1078,7 +1081,7 @@ Panel {
           spacing: Style.space(12)
 
           PanelHero {
-            title: radarRoot.version === "" ? "Flight Radar" : "Flight Radar " + radarRoot.version
+            title: "Flight Radar"
             meta: radarRoot.lastError !== ""
               ? "Aircraft data unavailable"
               : (radarRoot.initialized
@@ -1101,7 +1104,8 @@ Panel {
 
           Text {
             width: parent.width
-            text: (radarRoot.lastUpdatedAt !== ""
+            text: (radarRoot.version === "" ? "" : "v" + radarRoot.version + " · ")
+              + (radarRoot.lastUpdatedAt !== ""
                 ? "Updated " + radarRoot.lastUpdatedAt + " · " : "")
               + "R refresh · S settings"
             color: radarRoot.dim
