@@ -104,7 +104,10 @@ Panel {
 
   readonly property bool watchEnabled: setting("watch", true)
   readonly property bool notifyEnabled: setting("notify", true)
-  readonly property real overheadRadiusNm: RadarModel.clampNumber(conf("overheadRadiusNm", 2), 0.5, 60, 2)
+  // Only the scope is ever fetched, so an overhead radius past the range would
+  // watch a ring of sky no request covers.
+  readonly property real overheadRadiusNm:
+    Math.min(rangeNm, RadarModel.clampNumber(conf("overheadRadiusNm", 2), 0.5, 60, 2))
   readonly property real overheadCeilingFt: RadarModel.clampNumber(conf("overheadCeilingFt", 0), 0, 60000, 0)
   readonly property int notifyCooldownMs: Math.round(RadarModel.clampNumber(setting("notifyCooldownMin", 10), 1, 240, 10)) * 60000
   readonly property int watchIntervalSec: Math.round(RadarModel.clampNumber(setting("watchIntervalSec", 60), 30, 900, 60))
@@ -1523,7 +1526,7 @@ Panel {
                 fieldWidth: settingsColumn.thirdWidth
                 label: "Overhead (nm)"
                 from: 5
-                to: 600
+                to: Math.max(5, Math.round(rangeField.field.value * 10))
                 stepSize: 5
                 foreground: radarRoot.foreground
                 fontFamily: radarRoot.fontFamily

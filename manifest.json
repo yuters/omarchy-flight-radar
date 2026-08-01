@@ -123,7 +123,7 @@
       {
         "key": "overheadRadiusNm",
         "type": "number",
-        "label": "Overhead radius (nautical miles)",
+        "label": "Overhead radius (nautical miles, capped at the scope range)",
         "min": 0.5,
         "max": 60,
         "step": 0.5,
