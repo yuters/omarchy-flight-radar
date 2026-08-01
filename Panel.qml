@@ -536,6 +536,49 @@ Panel {
   function rebuildContacts() {
     contacts = RadarModel.buildContacts(trackedById, Date.now(),
       centreLat, centreLon, radiusDeg, unitSize)
+    syncContactModel(contacts)
+  }
+
+  function contactRowFor(contact) {
+    return {
+      icao24: contact.icao24,
+      callsign: contact.callsign,
+      distanceKm: contact.distanceKm,
+      bearing: contact.bearing,
+      altitude: contact.altitude,
+      velocity: contact.velocity,
+      verticalRate: contact.verticalRate,
+      trueTrack: contact.trueTrack,
+      originCountry: contact.originCountry,
+      squawk: contact.squawk
+    }
+  }
+
+  // Rows are matched by icao24 and edited in place. Handing the list a freshly
+  // built array instead made QML rebuild every delegate, which dropped the row
+  // under the cursor and could swallow a click landing across a rebuild.
+  function syncContactModel(list) {
+    for (var i = 0; i < list.length; i++) {
+      var row = contactRowFor(list[i])
+
+      var found = -1
+      for (var j = i; j < contactModel.count; j++) {
+        if (contactModel.get(j).icao24 === row.icao24) {
+          found = j
+          break
+        }
+      }
+
+      if (found === -1) {
+        contactModel.insert(i, row)
+        continue
+      }
+
+      if (found !== i) contactModel.move(found, i, 1)
+      contactModel.set(i, row)
+    }
+
+    while (contactModel.count > list.length) contactModel.remove(contactModel.count - 1)
   }
 
   function openOnMap(icao24) {
@@ -979,6 +1022,10 @@ Panel {
     running: radarRoot.opened
     repeat: true
     onTriggered: radarRoot.rebuildContacts()
+  }
+
+  ListModel {
+    id: contactModel
   }
 
   FileView {
@@ -1737,11 +1784,20 @@ Panel {
           }
 
           Repeater {
-            model: radarRoot.contacts
+            model: contactModel
 
             delegate: CursorSurface {
               id: contactRow
-              required property var modelData
+              required property string icao24
+              required property string callsign
+              required property real distanceKm
+              required property real bearing
+              required property real altitude
+              required property real velocity
+              required property real verticalRate
+              required property real trueTrack
+              required property string originCountry
+              required property string squawk
 
               width: radarColumn.width
               height: implicitHeight
@@ -1769,9 +1825,9 @@ Panel {
                     anchors.left: parent.left
                     anchors.right: contactRange.left
                     anchors.rightMargin: Style.space(12)
-                    text: contactRow.modelData.callsign
-                      + (radarRoot.overheadIds[contactRow.modelData.icao24] ? "  ▲ OVERHEAD" : "")
-                    color: radarRoot.overheadIds[contactRow.modelData.icao24]
+                    text: contactRow.callsign
+                      + (radarRoot.overheadIds[contactRow.icao24] ? "  ▲ OVERHEAD" : "")
+                    color: radarRoot.overheadIds[contactRow.icao24]
                       ? radarRoot.urgent : radarRoot.foreground
                     font.family: radarRoot.fontFamily
                     font.pixelSize: Style.font.body
@@ -1782,8 +1838,8 @@ Panel {
                   Text {
                     id: contactRange
                     anchors.right: parent.right
-                    text: RadarModel.formatDistance(contactRow.modelData.distanceKm, radarRoot.aviationUnits)
-                      + " " + RadarModel.compassPoint(contactRow.modelData.bearing)
+                    text: RadarModel.formatDistance(contactRow.distanceKm, radarRoot.aviationUnits)
+                      + " " + RadarModel.compassPoint(contactRow.bearing)
                     color: radarRoot.dim
                     font.family: radarRoot.fontFamily
                     font.pixelSize: Style.font.caption
@@ -1792,10 +1848,10 @@ Panel {
 
                 Text {
                   width: parent.width
-                  text: RadarModel.formatAltitude(contactRow.modelData.altitude, radarRoot.aviationUnits)
-                    + RadarModel.verticalArrow(contactRow.modelData.verticalRate)
-                    + " · " + RadarModel.formatSpeed(contactRow.modelData.velocity, radarRoot.aviationUnits)
-                    + " · heading " + Math.round(contactRow.modelData.trueTrack) + "°"
+                  text: RadarModel.formatAltitude(contactRow.altitude, radarRoot.aviationUnits)
+                    + RadarModel.verticalArrow(contactRow.verticalRate)
+                    + " · " + RadarModel.formatSpeed(contactRow.velocity, radarRoot.aviationUnits)
+                    + " · heading " + Math.round(contactRow.trueTrack) + "°"
                   color: radarRoot.dim
                   font.family: radarRoot.fontFamily
                   font.pixelSize: Style.font.caption
@@ -1807,8 +1863,8 @@ Panel {
                   visible: text !== ""
                   text: {
                     var parts = []
-                    if (contactRow.modelData.originCountry !== "") parts.push(contactRow.modelData.originCountry)
-                    if (contactRow.modelData.squawk !== "") parts.push("squawk " + contactRow.modelData.squawk)
+                    if (contactRow.originCountry !== "") parts.push(contactRow.originCountry)
+                    if (contactRow.squawk !== "") parts.push("squawk " + contactRow.squawk)
                     return parts.join(" · ")
                   }
                   color: radarRoot.dim
@@ -1824,7 +1880,7 @@ Panel {
                 hoverEnabled: true
                 acceptedButtons: Qt.LeftButton
                 cursorShape: Qt.PointingHandCursor
-                onClicked: radarRoot.openOnMap(contactRow.modelData.icao24)
+                onClicked: radarRoot.openOnMap(contactRow.icao24)
               }
             }
           }
