@@ -28,6 +28,7 @@ Panel {
   property var overheadIds: ({})
   property var notifiedAt: ({})
   property int overheadCount: 0
+  readonly property bool overheadKnown: watchEnabled || opened
 
   property bool settingsOpen: false
   property string settingsNotice: ""
@@ -84,13 +85,13 @@ Panel {
 
   readonly property int refreshIntervalMs: Math.round(RadarModel.clampNumber(setting("refreshIntervalSec", 20), 10, 300, 20)) * 1000
   readonly property int scopeSize: Math.round(RadarModel.clampNumber(setting("scopeSize", 320), 200, 520, 320))
-  readonly property bool showSweep: setting("sweep", true) !== false
-  readonly property bool showLabels: setting("labels", true) !== false
-  readonly property bool showTriangles: setting("triangles", true) !== false
-  readonly property bool aviationUnits: setting("aviationUnits", true) !== false
+  readonly property bool showSweep: flag("sweep", true)
+  readonly property bool showLabels: flag("labels", true)
+  readonly property bool showTriangles: flag("triangles", true)
+  readonly property bool aviationUnits: flag("aviationUnits", true)
 
-  readonly property bool watchEnabled: setting("watch", true) !== false
-  readonly property bool notifyEnabled: setting("notify", true) !== false
+  readonly property bool watchEnabled: flag("watch", true)
+  readonly property bool notifyEnabled: flag("notify", true)
   readonly property real overheadRadiusNm: RadarModel.clampNumber(conf("overheadRadiusNm", 2), 0.2, 60, 2)
   readonly property real overheadCeilingFt: RadarModel.clampNumber(conf("overheadCeilingFt", 0), 0, 60000, 0)
   readonly property int notifyCooldownMs: Math.round(RadarModel.clampNumber(setting("notifyCooldownMin", 10), 1, 240, 10)) * 60000
@@ -191,6 +192,13 @@ Panel {
   readonly property string configPath: Qt.resolvedUrl("settings.json").toString().replace(/^file:\/\//, "")
 
   property var userConfig: ({})
+
+  // `omarchy bar set` stores "false" as a string unless it is given --json.
+  function flag(key, fallback) {
+    var value = setting(key, fallback)
+    if (typeof value === "string") return value !== "false" && value !== "0" && value !== ""
+    return value !== false
+  }
 
   function conf(key, fallback) {
     var fromShell = settings ? settings[key] : undefined
@@ -920,7 +928,7 @@ Panel {
     bar: radarRoot.bar
     text: radarRoot.radarGlyph
     dimmed: radarRoot.lastError !== ""
-    active: radarRoot.overheadCount > 0
+    active: radarRoot.overheadCount > 0 && radarRoot.overheadKnown
     activeColor: radarRoot.badgeColor
     tooltipText: radarRoot.summary
 
@@ -935,7 +943,7 @@ Panel {
 
     Rectangle {
       id: badge
-      visible: radarRoot.overheadCount > 0
+      visible: radarRoot.overheadCount > 0 && radarRoot.overheadKnown
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.verticalCenter: parent.verticalCenter
       anchors.horizontalCenterOffset: button.opticalSize / 2 - Style.space(1)
