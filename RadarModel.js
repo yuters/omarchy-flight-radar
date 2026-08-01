@@ -381,7 +381,7 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, parsed))
 }
 
-function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, held, includeForecast) {
+function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, held, includeForecast, blend) {
   var contacts = []
   var outer = size / 2 - 1
 
@@ -389,7 +389,11 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
     var tracked = trackedById[icao]
     if (tracked.state.onGround) continue
 
-    var position = displayPosition(tracked, now)
+    // Easing onto a new fix is a rendering nicety for contacts drawn live.
+    // Everything that measures — the list, the overhead check, forecasts, and
+    // the point the sweep freezes — wants the current estimate, not one still
+    // travelling toward it.
+    var position = blend ? displayPosition(tracked, now) : predictPosition(tracked, now)
     var drawnLat = position.lat
     var drawnLon = position.lon
     var track = tracked.state.trueTrack

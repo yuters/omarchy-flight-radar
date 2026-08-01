@@ -728,8 +728,10 @@ Panel {
     if (drawnAt === now) return drawn
 
     drawnAt = now
+    // The only place a blend is visible: contacts drawn live, with no sweep to
+    // repaint them a step at a time.
     drawn = RadarModel.buildContacts(trackedById, now,
-      centreLat, centreLon, radiusDeg, unitSize, sweptPositions())
+      centreLat, centreLon, radiusDeg, unitSize, sweptPositions(), false, !showSweep)
     return drawn
   }
 
