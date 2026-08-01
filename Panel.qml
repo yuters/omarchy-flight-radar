@@ -1113,10 +1113,7 @@ Panel {
 
           Text {
             width: parent.width
-            text: (radarRoot.lastUpdatedAt !== ""
-                ? "Updated " + radarRoot.lastUpdatedAt + " · " : "")
-              + "R refresh · S settings"
-              + (radarRoot.version === "" ? "" : " · v" + radarRoot.version)
+            text: "R refresh · S settings"
             color: radarRoot.dim
             font.family: radarRoot.fontFamily
             font.pixelSize: Style.font.caption
@@ -1389,6 +1386,20 @@ Panel {
                 fontSize: Style.font.caption
                 onClicked: radarRoot.removeConfirmOpen = true
               }
+            }
+
+            PanelSeparator {
+              foreground: radarRoot.foreground
+            }
+
+            Text {
+              width: parent.width
+              horizontalAlignment: Text.AlignRight
+              visible: radarRoot.version !== ""
+              text: "Flight Radar v" + radarRoot.version
+              color: radarRoot.dim
+              font.family: radarRoot.fontFamily
+              font.pixelSize: Style.font.caption
             }
           }
 
