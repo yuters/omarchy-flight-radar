@@ -361,6 +361,7 @@ Panel {
 
     saveConfig(edit)
     if (!hasManualCentre) resolveAutoLocation(true)
+    hardRefresh()
     setNotice("Settings saved.", false)
   }
 
@@ -380,6 +381,7 @@ Panel {
     })
 
     resolveAutoLocation(true)
+    hardRefresh()
 
     rangeField.field.value = rangeNm
     overheadField.field.value = toTenths(overheadRadiusNm)
@@ -480,6 +482,16 @@ Panel {
       }
     }
     heldPositions = seeded
+    drawnAt = -1
+  }
+
+  // R and a settings change put every contact where it is now; the poll leaves
+  // the sweep to repaint them, which is the whole point of the sweep.
+  function hardRefresh() {
+    snapOnNextFix = true
+    snapPositions()
+    repaintScope()
+    refresh(true)
   }
 
   function sweepCrossed(angle, current) {
@@ -1155,7 +1167,7 @@ Panel {
 
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.MiddleButton) {
-        radarRoot.refresh(true)
+        radarRoot.hardRefresh()
         return
       }
 
@@ -1213,7 +1225,7 @@ Panel {
       onTextKey: function(text) {
         if (radarRoot.removeConfirmOpen) return
 
-        if (text === "r" || text === "R") radarRoot.refresh(true)
+        if (text === "r" || text === "R") radarRoot.hardRefresh()
         else if (text === "s" || text === "S") {
           radarRoot.settingsOpen = !radarRoot.settingsOpen
           if (radarRoot.settingsOpen) radarRoot.loadCentreFields()
