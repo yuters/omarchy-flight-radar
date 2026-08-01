@@ -8,6 +8,11 @@ var BLEND_DURATION_MS = 1000.0 / 0.15
 var METERS_PER_SEC_TO_KNOTS = 1.943844
 var METERS_TO_FEET = 3.280840
 var EARTH_RADIUS_KM = 6371.0
+// A forecast waits for two real observations, rejects a turn over 15°, and
+// never projects a position more than ten minutes into the future.
+var FORECAST_HORIZON_SECONDS = 10 * 60
+var FORECAST_MAX_SOURCE_AGE_MS = 2 * 60 * 1000
+var FORECAST_MAX_HEADING_CHANGE_DEG = 15
 
 function parseAircraft(state) {
   function num(index) {
@@ -24,10 +29,20 @@ function parseAircraft(state) {
     return isFinite(parsed) ? parsed : null
   }
 
+  function optionalNumber(index) {
+    var value = state[index]
+    if (value === null || value === undefined) return null
+    var parsed = parseFloat(value)
+    return isFinite(parsed) ? parsed : null
+  }
+
   function str(index) {
     var value = state[index]
     return value === null || value === undefined ? "" : String(value).replace(/^\s+|\s+$/g, "")
   }
+
+  var velocity = optionalNumber(9)
+  var trueTrack = optionalNumber(10)
 
   return {
     icao24: str(0),
@@ -39,8 +54,10 @@ function parseAircraft(state) {
     latitude: coordinate(6),
     baroAltitude: num(7),
     onGround: state[8] === true,
-    velocity: num(9),
-    trueTrack: num(10),
+    velocity: velocity === null ? 0 : velocity,
+    hasVelocity: velocity !== null,
+    trueTrack: trueTrack === null ? 0 : trueTrack,
+    hasTrueTrack: trueTrack !== null,
     verticalRate: num(11),
     geoAltitude: num(13),
     squawk: str(14)
@@ -104,14 +121,17 @@ function parseResponse(raw) {
 }
 
 function makeTracked(aircraft, now) {
-  return {
+  var tracked = {
     state: aircraft,
     lastSeen: now,
     blendFromLat: aircraft.latitude,
     blendFromLon: aircraft.longitude,
     blendStart: now,
-    blendActive: false      // first sighting is drawn where it actually is
+    blendActive: false,     // first sighting is drawn where it actually is
+    motionSamples: []
   }
+  recordMotionSample(tracked, aircraft)
+  return tracked
 }
 
 function updateTracked(tracked, aircraft, now) {
@@ -122,6 +142,48 @@ function updateTracked(tracked, aircraft, now) {
   tracked.blendActive = true
   tracked.state = aircraft
   tracked.lastSeen = now
+  recordMotionSample(tracked, aircraft)
+}
+
+function motionSample(aircraft) {
+  if (!aircraft.hasVelocity || !aircraft.hasTrueTrack) return null
+
+  var sampledAt = Math.max(aircraft.timePosition, aircraft.lastContact)
+  if (!isFinite(sampledAt) || sampledAt <= 0) return null
+
+  return { sampledAt: sampledAt, trueTrack: aircraft.trueTrack }
+}
+
+function recordMotionSample(tracked, aircraft) {
+  var sample = motionSample(aircraft)
+  if (!sample) return
+
+  // Repeated reads of the same OpenSky state do not prove a stable heading.
+  var samples = tracked.motionSamples || []
+  var last = samples.length > 0 ? samples[samples.length - 1] : null
+  if (last && last.sampledAt === sample.sampledAt) {
+    samples[samples.length - 1] = sample
+    tracked.motionSamples = samples
+    return
+  }
+
+  samples.push(sample)
+  if (samples.length > 2) samples.shift()
+  tracked.motionSamples = samples
+}
+
+function headingChangeDeg(from, to) {
+  var change = Math.abs(from - to) % 360
+  return Math.min(change, 360 - change)
+}
+
+function hasStableHeading(tracked) {
+  var samples = tracked.motionSamples || []
+  if (samples.length < 2) return false
+
+  var previous = samples[samples.length - 2]
+  var current = samples[samples.length - 1]
+  return headingChangeDeg(previous.trueTrack, current.trueTrack) <= FORECAST_MAX_HEADING_CHANGE_DEG
 }
 
 function blendAlpha(tracked, now) {
@@ -196,6 +258,50 @@ function bearingDeg(fromLat, fromLon, toLat, toLon) {
   var x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon)
   var deg = Math.atan2(y, x) * 180.0 / Math.PI
   return (deg + 360) % 360
+}
+
+function closestApproach(position, trueTrack, velocity, centreLat, centreLon, horizonSeconds) {
+  if (!position || !isFinite(position.lat) || !isFinite(position.lon)) return null
+  if (!isFinite(trueTrack) || !isFinite(velocity) || velocity <= 0) return null
+  if (!isFinite(horizonSeconds) || horizonSeconds <= 0) return null
+
+  var cosLat = Math.cos(centreLat * Math.PI / 180.0)
+  if (Math.abs(cosLat) < 1e-6) cosLat = 1e-6
+
+  var east = normalizeLonDelta(position.lon - centreLon) * LAT_METERS_PER_DEG * cosLat
+  var north = (position.lat - centreLat) * LAT_METERS_PER_DEG
+  var track = trueTrack * Math.PI / 180.0
+  var eastVelocity = Math.sin(track) * velocity
+  var northVelocity = Math.cos(track) * velocity
+  var speedSquared = eastVelocity * eastVelocity + northVelocity * northVelocity
+  var etaSeconds = -(east * eastVelocity + north * northVelocity) / speedSquared
+
+  if (etaSeconds <= 0 || etaSeconds > horizonSeconds) return null
+
+  var closestEast = east + eastVelocity * etaSeconds
+  var closestNorth = north + northVelocity * etaSeconds
+
+  return {
+    etaSeconds: etaSeconds,
+    distanceKm: Math.sqrt(closestEast * closestEast + closestNorth * closestNorth) / 1000.0
+  }
+}
+
+function hasFreshPosition(state, now) {
+  if (!isFinite(state.timePosition) || state.timePosition <= 0) return false
+
+  var age = now - state.timePosition * 1000
+  return age >= -60000 && age <= FORECAST_MAX_SOURCE_AGE_MS
+}
+
+function forecastApproach(tracked, position, now, centreLat, centreLon) {
+  var state = tracked.state
+  if (!state.hasVelocity || !state.hasTrueTrack) return null
+  if (!hasFreshPosition(state, now)) return null
+  if (!hasStableHeading(tracked)) return null
+
+  return closestApproach(position, state.trueTrack, state.velocity,
+    centreLat, centreLon, FORECAST_HORIZON_SECONDS)
 }
 
 function boundingBox(centreLat, centreLon, radiusDeg) {
@@ -276,7 +382,7 @@ function clampNumber(value, min, max, fallback) {
   return Math.max(min, Math.min(max, parsed))
 }
 
-function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, held) {
+function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, held, includeForecast) {
   var contacts = []
   var outer = size / 2 - 1
 
@@ -308,6 +414,9 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
 
     var ground = distanceKm(centreLat, centreLon, position.lat, position.lon)
     var altitude = tracked.state.baroAltitude !== 0 ? tracked.state.baroAltitude : tracked.state.geoAltitude
+    var approach = includeForecast
+      ? forecastApproach(tracked, position, now, centreLat, centreLon)
+      : null
 
     contacts.push({
       icao24: tracked.state.icao24,
@@ -323,7 +432,9 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
       originCountry: tracked.state.originCountry,
       squawk: tracked.state.squawk,
       distanceKm: ground,
-      bearing: bearingDeg(centreLat, centreLon, position.lat, position.lon)
+      bearing: bearingDeg(centreLat, centreLon, position.lat, position.lon),
+      approachEtaSeconds: approach ? approach.etaSeconds : -1,
+      closestDistanceKm: approach ? approach.distanceKm : -1
     })
   }
 
@@ -373,6 +484,25 @@ function overheadContacts(contacts, radiusNm, ceilingFt) {
   return out
 }
 
+function isForecastContact(contact, radiusNm, ceilingFt) {
+  if (contact.approachEtaSeconds <= 0 || contact.closestDistanceKm < 0) return false
+  if (contact.distanceKm / 1.852 <= radiusNm) return false
+  if (contact.closestDistanceKm / 1.852 > radiusNm) return false
+  if (ceilingFt <= 0 || contact.altitude <= 0) return true
+  return Math.round(contact.altitude * METERS_TO_FEET) <= ceilingFt
+}
+
+function forecastContacts(contacts, radiusNm, ceilingFt) {
+  var out = []
+  for (var i = 0; i < contacts.length; i++) {
+    if (isForecastContact(contacts[i], radiusNm, ceilingFt)) out.push(contacts[i])
+  }
+  out.sort(function(left, right) {
+    return left.approachEtaSeconds - right.approachEtaSeconds
+  })
+  return out
+}
+
 function overheadRingUnits(radiusNm, radiusDeg, size) {
   var scopeNm = (radiusDeg * LAT_METERS_PER_DEG / 1000.0) / 1.852
   if (scopeNm <= 0) return 0
@@ -391,6 +521,28 @@ function notificationText(contact, useAviationUnits) {
       + " · " + formatAltitude(contact.altitude, useAviationUnits)
       + " · " + formatSpeed(contact.velocity, useAviationUnits)
       + trend
+  }
+}
+
+function formatForecastEta(seconds) {
+  if (!isFinite(seconds) || seconds <= 0) return "—"
+  var minutes = Math.max(1, Math.ceil(seconds / 60))
+  return minutes + " min"
+}
+
+function forecastText(contact, useAviationUnits) {
+  if (!contact || contact.approachEtaSeconds <= 0 || contact.closestDistanceKm < 0) return ""
+  return "INBOUND · " + formatForecastEta(contact.approachEtaSeconds)
+    + " · closest " + formatDistance(contact.closestDistanceKm, useAviationUnits)
+}
+
+function forecastNotificationText(contact, useAviationUnits) {
+  return {
+    headline: contact.callsign + " approaching overhead",
+    body: "Closest in " + formatForecastEta(contact.approachEtaSeconds)
+      + " at " + formatDistance(contact.closestDistanceKm, useAviationUnits)
+      + " · " + formatAltitude(contact.altitude, useAviationUnits)
+      + " · " + formatSpeed(contact.velocity, useAviationUnits)
   }
 }
 
@@ -417,6 +569,8 @@ if (typeof module !== "undefined") {
     numberOr: numberOr,
     makeTracked: makeTracked,
     updateTracked: updateTracked,
+    headingChangeDeg: headingChangeDeg,
+    hasStableHeading: hasStableHeading,
     blendAlpha: blendAlpha,
     predictPosition: predictPosition,
     displayPosition: displayPosition,
@@ -424,6 +578,8 @@ if (typeof module !== "undefined") {
     project: project,
     distanceKm: distanceKm,
     bearingDeg: bearingDeg,
+    closestApproach: closestApproach,
+    forecastApproach: forecastApproach,
     boundingBox: boundingBox,
     boundingBoxes: boundingBoxes,
     boxAreaSqDeg: boxAreaSqDeg,
@@ -438,7 +594,12 @@ if (typeof module !== "undefined") {
     isOverhead: isOverhead,
     overheadRingUnits: overheadRingUnits,
     overheadContacts: overheadContacts,
+    isForecastContact: isForecastContact,
+    forecastContacts: forecastContacts,
     notificationText: notificationText,
+    formatForecastEta: formatForecastEta,
+    forecastText: forecastText,
+    forecastNotificationText: forecastNotificationText,
     compassPoint: compassPoint,
     verticalArrow: verticalArrow,
     rangeLabel: rangeLabel

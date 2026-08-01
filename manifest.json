@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "yuters.flight-radar",
   "name": "Flight Radar",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "author": "yuters",
   "license": "MIT",
-  "description": "Live aircraft overhead on a micro-radar style scope, with an overhead badge and notifications. Works without an account.",
+  "description": "Live aircraft overhead with short-horizon flyby forecasts, an overhead badge, and notifications. Works without an account.",
   "homepage": "https://github.com/yuters/omarchy-flight-radar",
   "repository": "https://github.com/yuters/omarchy-flight-radar",
   "keywords": [
@@ -24,7 +24,7 @@
   },
   "barWidget": {
     "displayName": "Flight Radar",
-    "description": "Aircraft currently overhead on a radar scope, fed by the OpenSky Network",
+    "description": "Live aircraft and predicted flybys, fed by the OpenSky Network",
     "category": "Info",
     "allowMultiple": false,
     "defaultSection": "right",
@@ -37,6 +37,7 @@
       "watch": true,
       "watchIntervalSec": 60,
       "notify": true,
+      "forecastNotify": false,
       "notifyCooldownMin": 10,
       "overheadCeilingFt": 0,
       "sweep": true,
@@ -110,6 +111,12 @@
         "type": "boolean",
         "label": "Notify when an aircraft comes overhead",
         "defaultValue": true
+      },
+      {
+        "key": "forecastNotify",
+        "type": "boolean",
+        "label": "Notify in advance when an aircraft is predicted to pass overhead",
+        "defaultValue": false
       },
       {
         "key": "notifyCooldownMin",

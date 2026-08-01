@@ -38,3 +38,96 @@ test("antimeridian scopes split into valid boxes and count both requests", () =>
 
   assert.equal(radar.boundingBoxes(45, -73, 2).length, 1)
 })
+
+test("motion availability distinguishes missing values from northbound zero", () => {
+  const northbound = state("north", -73, 45)
+  northbound[10] = 0
+
+  const missing = state("missing", -73, 45)
+  missing[9] = null
+  missing[10] = null
+
+  const result = radar.parseResponse(JSON.stringify({ states: [northbound, missing] }))
+
+  assert.equal(result.aircraft[0].trueTrack, 0)
+  assert.equal(result.aircraft[0].hasTrueTrack, true)
+  assert.equal(result.aircraft[0].hasVelocity, true)
+  assert.equal(result.aircraft[1].hasTrueTrack, false)
+  assert.equal(result.aircraft[1].hasVelocity, false)
+})
+
+function movingAircraft({ heading, sampledAt, longitude = 0.05 }) {
+  return {
+    icao24: "forecast",
+    callsign: "FORECAST",
+    originCountry: "Test",
+    timePosition: sampledAt,
+    lastContact: sampledAt,
+    longitude,
+    latitude: 0,
+    baroAltitude: 3000,
+    onGround: false,
+    velocity: 100,
+    hasVelocity: true,
+    trueTrack: heading,
+    hasTrueTrack: true,
+    verticalRate: 0,
+    geoAltitude: 3000,
+    squawk: "1234"
+  }
+}
+
+function trackedWithHeadings(now, firstHeading, secondHeading) {
+  const first = movingAircraft({ heading: firstHeading, sampledAt: now / 1000 - 20 })
+  const tracked = radar.makeTracked(first, now - 10000)
+  const second = movingAircraft({ heading: secondHeading, sampledAt: now / 1000 - 10 })
+  radar.updateTracked(tracked, second, now)
+  return tracked
+}
+
+test("stable inbound tracks predict their closest approach", () => {
+  const now = 1700000000000
+  const tracked = trackedWithHeadings(now, 270, 272)
+  const approach = radar.forecastApproach(tracked, { lat: 0, lon: 0.05 }, now, 0, 0)
+
+  assert.ok(approach)
+  assert.ok(approach.etaSeconds > 50 && approach.etaSeconds < 60)
+  assert.ok(approach.distanceKm < 0.2)
+})
+
+test("forecasts reject unstable, stale, and receding tracks", () => {
+  const now = 1700000000000
+  const unstable = trackedWithHeadings(now, 240, 270)
+  assert.equal(radar.forecastApproach(unstable, { lat: 0, lon: 0.05 }, now, 0, 0), null)
+
+  const stale = trackedWithHeadings(now, 270, 270)
+  stale.state.timePosition = now / 1000 - 121
+  assert.equal(radar.forecastApproach(stale, { lat: 0, lon: 0.05 }, now, 0, 0), null)
+
+  assert.equal(radar.closestApproach({ lat: 0, lon: 0.05 }, 90, 100, 0, 0, 600), null)
+})
+
+test("forecast qualification respects the overhead ring and ceiling", () => {
+  function contact(id, distanceNm, closestNm, etaSeconds, altitude = 3000) {
+    return {
+      icao24: id,
+      distanceKm: distanceNm * 1.852,
+      closestDistanceKm: closestNm * 1.852,
+      approachEtaSeconds: etaSeconds,
+      altitude
+    }
+  }
+
+  const contacts = [
+    contact("later", 5, 1, 240),
+    contact("sooner", 4, 0.5, 120),
+    contact("already-overhead", 1, 0.2, 30),
+    contact("misses", 5, 3, 120),
+    contact("too-high", 5, 1, 90, 6000)
+  ]
+
+  const forecasts = radar.forecastContacts(contacts, 2, 15000)
+
+  assert.deepEqual(forecasts.map(contact => contact.icao24), ["sooner", "later"])
+  assert.equal(radar.forecastText(forecasts[0], true), "INBOUND · 2 min · closest 0.5nm")
+})

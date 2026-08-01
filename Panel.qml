@@ -32,6 +32,11 @@ Panel {
   property int overheadCount: 0
   readonly property bool overheadKnown: watchEnabled || opened
 
+  property var forecastIds: ({})
+  property var forecastAlertedUntil: ({})
+  property int forecastCount: 0
+  readonly property bool forecastKnown: watchEnabled || opened
+
   property bool settingsOpen: false
   property bool configLoaded: false
   property bool centreFieldsLoaded: false
@@ -40,6 +45,7 @@ Panel {
   property bool credentialsSaving: false
   property string credentialsAction: ""
   property bool removeConfirmOpen: false
+  property bool forecastNotifyDraft: false
 
   property real epochMs: 0
 
@@ -104,6 +110,7 @@ Panel {
 
   readonly property bool watchEnabled: setting("watch", true)
   readonly property bool notifyEnabled: setting("notify", true)
+  readonly property bool forecastNotifyEnabled: conf("forecastNotify", false)
   // Only the scope is ever fetched, so an overhead radius past the range would
   // watch a ring of sky no request covers.
   readonly property real overheadRadiusNm:
@@ -111,6 +118,7 @@ Panel {
   readonly property real overheadCeilingFt: RadarModel.clampNumber(conf("overheadCeilingFt", 0), 0, 60000, 0)
   readonly property int notifyCooldownMs: Math.round(RadarModel.clampNumber(setting("notifyCooldownMin", 10), 1, 240, 10)) * 60000
   readonly property int watchIntervalSec: Math.round(RadarModel.clampNumber(setting("watchIntervalSec", 60), 30, 900, 60))
+  readonly property int forecastPassDedupeMs: 15 * 60 * 1000
 
   readonly property var queryBoxes: RadarModel.boundingBoxes(centreLat, centreLon, radiusDeg)
   readonly property int requestCredits: RadarModel.requestCredits(queryBoxes)
@@ -258,22 +266,28 @@ Panel {
 
   // Overrides the base lookup: `omarchy bar set` stores "false" as a string
   // unless it is given --json, so a boolean setting has to be coerced.
+  function booleanValue(value) {
+    if (typeof value === "string") return value !== "false" && value !== "0" && value !== ""
+    return value !== false
+  }
+
   function setting(key, fallback) {
     var value = settings ? settings[key] : undefined
     if (value === undefined || value === null) return fallback
     if (typeof fallback !== "boolean") return value
-    if (typeof value === "string") return value !== "false" && value !== "0" && value !== ""
-    return value !== false
+    return booleanValue(value)
   }
 
   // What the panel saved wins over `omarchy bar set`, which is left as the
   // starting value for a key the panel has never written. Reset to defaults
   // drops the panel's copy and hands the key back to shell.json.
   function conf(key, fallback) {
-    if (userConfig && userConfig[key] !== undefined && userConfig[key] !== null) return userConfig[key]
+    var value
+    if (userConfig && userConfig[key] !== undefined && userConfig[key] !== null) value = userConfig[key]
     var fromShell = settings ? settings[key] : undefined
-    if (fromShell !== undefined && fromShell !== null) return fromShell
-    return fallback
+    if (value === undefined && fromShell !== undefined && fromShell !== null) value = fromShell
+    if (value === undefined) return fallback
+    return typeof fallback === "boolean" ? booleanValue(value) : value
   }
 
   function applyUserConfig(raw) {
@@ -321,6 +335,9 @@ Panel {
     if (overheadCount > 0)
       return overheadCount + " aircraft overhead (≤" + overheadText + ") · " + inRange
 
+    if (forecastKnown && forecastCount > 0)
+      return forecastCount + " aircraft inbound · " + inRange
+
     return inRange.charAt(0).toUpperCase() + inRange.slice(1)
   }
 
@@ -350,6 +367,7 @@ Panel {
     rangeField.field.value = rangeNm
     overheadField.field.value = toTenths(overheadRadiusNm)
     ceilingField.field.value = overheadCeilingFt
+    forecastNotifyDraft = forecastNotifyEnabled
     setNotice("", false)
   }
 
@@ -400,6 +418,7 @@ Panel {
     edit.rangeNm = rangeField.field.value
     edit.overheadRadiusNm = overheadField.field.value / 10
     edit.overheadCeilingFt = ceilingField.field.value
+    edit.forecastNotify = forecastNotifyDraft
 
     saveConfig(edit)
     if (!hasManualCentre) resolveAutoLocation(true)
@@ -419,7 +438,8 @@ Panel {
       longitude: null,
       rangeNm: null,
       overheadRadiusNm: null,
-      overheadCeilingFt: null
+      overheadCeilingFt: null,
+      forecastNotify: null
     })
 
     resolveAutoLocation(true)
@@ -428,6 +448,7 @@ Panel {
     rangeField.field.value = rangeNm
     overheadField.field.value = toTenths(overheadRadiusNm)
     ceilingField.field.value = overheadCeilingFt
+    forecastNotifyDraft = forecastNotifyEnabled
     setNotice("Settings reset.", false)
   }
 
@@ -520,7 +541,7 @@ Panel {
     mergeAircraft(result.aircraft)
     lastUpdatedAt = Qt.formatTime(new Date(), "HH:mm:ss")
     rebuildContacts()
-    evaluateOverhead()
+    evaluateTraffic()
     repaintScope()
   }
 
@@ -626,9 +647,18 @@ Panel {
   }
 
   function rebuildContacts() {
-    contacts = RadarModel.buildContacts(trackedById, Date.now(),
-      centreLat, centreLon, radiusDeg, unitSize)
-    syncContactModel(contacts)
+    var live = RadarModel.buildContacts(trackedById, Date.now(),
+      centreLat, centreLon, radiusDeg, unitSize, null, true)
+    contacts = live
+    setForecastContacts(RadarModel.forecastContacts(live, overheadRadiusNm, overheadCeilingFt))
+    syncContactModel(live)
+  }
+
+  function setForecastContacts(forecasts) {
+    var nextIds = ({})
+    for (var i = 0; i < forecasts.length; i++) nextIds[forecasts[i].icao24] = true
+    forecastIds = nextIds
+    forecastCount = forecasts.length
   }
 
   function contactRowFor(contact) {
@@ -642,7 +672,9 @@ Panel {
       verticalRate: contact.verticalRate,
       trueTrack: contact.trueTrack,
       originCountry: contact.originCountry,
-      squawk: contact.squawk
+      squawk: contact.squawk,
+      approachEtaSeconds: contact.approachEtaSeconds,
+      closestDistanceKm: contact.closestDistanceKm
     }
   }
 
@@ -725,20 +757,40 @@ Panel {
       text.headline, text.body])
   }
 
+  function sendForecastNotification(contact) {
+    var text = RadarModel.forecastNotificationText(contact, aviationUnits)
+    Quickshell.execDetached(["omarchy-notification-send",
+      "--app-name", "radar", "-u", "low", "-g", radarGlyph,
+      text.headline, text.body])
+  }
+
   function clearOverhead() {
     overheadIds = ({})
     overheadCount = 0
   }
 
-  function evaluateOverhead() {
+  function clearForecast() {
+    forecastIds = ({})
+    forecastCount = 0
+  }
+
+  function evaluateTraffic() {
     // Failed data must not move the badge state forward: doing so could both
     // show a ghost contact and suppress its real arrival after recovery.
     if (lastError !== "") return
 
     var now = Date.now()
     var all = RadarModel.buildContacts(trackedById, now,
-      centreLat, centreLon, radiusDeg, unitSize)
+      centreLat, centreLon, radiusDeg, unitSize, null, true)
     var overhead = RadarModel.overheadContacts(all, overheadRadiusNm, overheadCeilingFt)
+    var forecasts = RadarModel.forecastContacts(all, overheadRadiusNm, overheadCeilingFt)
+    setForecastContacts(forecasts)
+
+    var activeForecastAlerts = ({})
+    for (var alertedId in forecastAlertedUntil) {
+      if (forecastAlertedUntil[alertedId] > now)
+        activeForecastAlerts[alertedId] = forecastAlertedUntil[alertedId]
+    }
 
     var nextIds = ({})
     for (var i = 0; i < overhead.length; i++) {
@@ -748,14 +800,29 @@ Panel {
       if (overheadIds[contact.icao24]) continue      // already counted, not new
 
       var last = notifiedAt[contact.icao24] || 0
-      if (notifyEnabled && now - last > notifyCooldownMs) {
+      var forecastedUntil = activeForecastAlerts[contact.icao24] || 0
+      if (notifyEnabled && now >= forecastedUntil && now - last > notifyCooldownMs) {
         notifiedAt[contact.icao24] = now
         sendNotification(contact)
       }
     }
 
+    for (var j = 0; j < forecasts.length; j++) {
+      var forecast = forecasts[j]
+      if (!forecastNotifyEnabled) continue
+      if ((activeForecastAlerts[forecast.icao24] || 0) > now) continue
+
+      var forecastLast = notifiedAt[forecast.icao24] || 0
+      if (now - forecastLast <= notifyCooldownMs) continue
+
+      notifiedAt[forecast.icao24] = now
+      activeForecastAlerts[forecast.icao24] = now + forecastPassDedupeMs
+      sendForecastNotification(forecast)
+    }
+
     overheadIds = nextIds
     overheadCount = overhead.length
+    forecastAlertedUntil = activeForecastAlerts
     pruneNotified(now)
   }
 
@@ -1074,7 +1141,9 @@ Panel {
   onCentreLonChanged: repaintScope()
 
   onLastErrorChanged: {
-    if (lastError !== "") clearOverhead()
+    if (lastError === "") return
+    clearOverhead()
+    clearForecast()
   }
 
   onHasManualCentreChanged: {
@@ -1120,7 +1189,7 @@ Panel {
     repeat: true
     onTriggered: {
       radarRoot.pruneStaleTracks()
-      radarRoot.evaluateOverhead()
+      radarRoot.evaluateTraffic()
     }
   }
 
@@ -1584,6 +1653,18 @@ Panel {
               }
             }
 
+            Toggle {
+              id: forecastNotifyToggle
+              width: parent.width
+              label: "Advance flyby alerts"
+              description: "Notify once when a stable track is predicted to enter the overhead radius within 10 minutes."
+              checked: radarRoot.forecastNotifyDraft
+              foreground: radarRoot.foreground
+              accent: radarRoot.scopeTint
+              fontFamily: radarRoot.fontFamily
+              onClicked: radarRoot.forecastNotifyDraft = !radarRoot.forecastNotifyDraft
+            }
+
             Text {
               width: parent.width
               visible: radarRoot.settingsNotice !== ""
@@ -1913,7 +1994,9 @@ Panel {
           }
 
           PanelSectionHeader {
-            text: "CONTACTS"
+            text: radarRoot.forecastCount > 0
+              ? "CONTACTS · " + radarRoot.forecastCount + " INBOUND"
+              : "CONTACTS"
             foreground: radarRoot.foreground
             fontFamily: radarRoot.fontFamily
           }
@@ -1953,6 +2036,8 @@ Panel {
               required property real trueTrack
               required property string originCountry
               required property string squawk
+              required property real approachEtaSeconds
+              required property real closestDistanceKm
 
               width: radarColumn.width
               height: implicitHeight
@@ -1999,6 +2084,18 @@ Panel {
                     font.family: radarRoot.fontFamily
                     font.pixelSize: Style.font.caption
                   }
+                }
+
+                Text {
+                  width: parent.width
+                  visible: radarRoot.forecastIds[contactRow.icao24] === true
+                    && !radarRoot.overheadIds[contactRow.icao24]
+                  text: RadarModel.forecastText(contactRow, radarRoot.aviationUnits)
+                  color: radarRoot.scopeTint
+                  font.family: radarRoot.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  elide: Text.ElideRight
                 }
 
                 Text {
