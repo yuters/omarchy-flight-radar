@@ -148,3 +148,71 @@ test("notification batches preserve every aircraft", () => {
     body: alerts[0].body
   })
 })
+
+test("a track the API stopped reporting is drawn only from its held blip", () => {
+  const centreLat = 45.5, centreLon = -73.2, size = 240
+  const radiusDeg = radar.rangeNmToDeg(20)
+  const now = Date.now()
+
+  const aircraft = radar.parseResponse(JSON.stringify({
+    time: 1, authenticated: true, states: [state("dropped", -73.2, 45.55)]
+  })).aircraft[0]
+
+  const tracked = radar.makeTracked(aircraft, now)
+  assert.equal(tracked.dropped, false)
+
+  const live = radar.buildContacts({ dropped: tracked }, now,
+    centreLat, centreLon, radiusDeg, size)
+  assert.deepEqual(live.map(contact => contact.icao24), ["dropped"])
+
+  tracked.dropped = true
+  const hold = { lat: live[0].lat, lon: live[0].lon, trueTrack: live[0].trueTrack }
+
+  // Nothing that measures may see it again: the list, the overhead check and
+  // the forecasts all build without holds.
+  assert.deepEqual(radar.buildContacts({ dropped: tracked }, now,
+    centreLat, centreLon, radiusDeg, size), [])
+
+  // The scope still draws it, frozen where the sweep last painted it, until
+  // the sweep comes round and the hold is dropped.
+  const drawn = radar.buildContacts({ dropped: tracked }, now,
+    centreLat, centreLon, radiusDeg, size, { dropped: hold })
+  assert.deepEqual(drawn.map(contact => contact.icao24), ["dropped"])
+  assert.equal(drawn[0].lat, hold.lat)
+})
+
+test("a hold freezes what the label reads, not just where the blip sits", () => {
+  const centreLat = 45.5, centreLon = -73.2, size = 240
+  const radiusDeg = radar.rangeNmToDeg(20)
+  const now = Date.now()
+
+  const painted = radar.parseResponse(JSON.stringify({
+    time: 1, authenticated: true, states: [state("ab1234", -73.2, 45.55)]
+  })).aircraft[0]
+  const tracked = radar.makeTracked(painted, now)
+
+  const atPaint = radar.buildContacts({ ab1234: tracked }, now,
+    centreLat, centreLon, radiusDeg, size)[0]
+  const hold = {
+    lat: atPaint.lat, lon: atPaint.lon, trueTrack: atPaint.trueTrack,
+    altitude: atPaint.altitude, velocity: atPaint.velocity
+  }
+
+  // A later fix climbs and accelerates, but the sweep has not been back
+  const climbed = radar.parseResponse(JSON.stringify({
+    time: 2, authenticated: true,
+    states: [[ "ab1234", "TEST", "Test", 2, 2, -73.2, 45.56, 3000, false, 250, 90, 5, null, 3000, "1234" ]]
+  })).aircraft[0]
+  radar.updateTracked(tracked, climbed, now + 20000)
+
+  const drawn = radar.buildContacts({ ab1234: tracked }, now + 20000,
+    centreLat, centreLon, radiusDeg, size, { ab1234: hold })[0]
+  assert.equal(drawn.altitude, hold.altitude)
+  assert.equal(drawn.velocity, hold.velocity)
+
+  // and the list, which builds without holds, has the new numbers
+  const listed = radar.buildContacts({ ab1234: tracked }, now + 20000,
+    centreLat, centreLon, radiusDeg, size)[0]
+  assert.equal(listed.altitude, 3000)
+  assert.equal(listed.velocity, 250)
+})

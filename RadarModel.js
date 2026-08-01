@@ -123,6 +123,7 @@ function makeTracked(aircraft, now) {
   var tracked = {
     state: aircraft,
     lastSeen: now,
+    dropped: false,
     blendFromLat: aircraft.latitude,
     blendFromLon: aircraft.longitude,
     blendStart: now,
@@ -389,6 +390,10 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
     var tracked = trackedById[icao]
     if (tracked.state.onGround) continue
 
+    // A track the API has stopped reporting exists only to hold its last blip
+    // until the sweep wipes it. It is drawn from that hold and counted nowhere.
+    if (tracked.dropped && !held) continue
+
     // Easing onto a new fix is a rendering nicety for contacts drawn live.
     // Everything that measures — the list, the overhead check, forecasts, and
     // the point the sweep freezes — wants the current estimate, not one still
@@ -402,10 +407,19 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
     // With holds in play a contact is only drawn once the sweep has painted it.
     var hold = held ? held[icao] : null
     if (held && !hold) continue
+
+    var altitude = tracked.state.baroAltitude !== 0 ? tracked.state.baroAltitude : tracked.state.geoAltitude
+    var speed = tracked.state.velocity
+
+    // A hold is the whole blip as the sweep found it, label included. Letting
+    // the altitude tick over while the contact sits where it was painted shows
+    // a reading the sweep never took.
     if (hold) {
       drawnLat = hold.lat
       drawnLon = hold.lon
       track = hold.trueTrack
+      if (hold.altitude !== undefined) altitude = hold.altitude
+      if (hold.velocity !== undefined) speed = hold.velocity
     }
 
     var point = project(drawnLat, drawnLon, centreLat, centreLon, radiusDeg, size)
@@ -416,7 +430,6 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
     if (Math.sqrt(offsetX * offsetX + offsetY * offsetY) > outer) continue
 
     var ground = distanceKm(centreLat, centreLon, position.lat, position.lon)
-    var altitude = tracked.state.baroAltitude !== 0 ? tracked.state.baroAltitude : tracked.state.geoAltitude
     var approach = includeForecast
       ? forecastApproach(tracked, position, now, centreLat, centreLon)
       : null
@@ -429,7 +442,7 @@ function buildContacts(trackedById, now, centreLat, centreLon, radiusDeg, size, 
       lat: drawnLat,
       lon: drawnLon,
       trueTrack: track,
-      velocity: tracked.state.velocity,
+      velocity: speed,
       verticalRate: tracked.state.verticalRate,
       altitude: altitude,
       originCountry: tracked.state.originCountry,

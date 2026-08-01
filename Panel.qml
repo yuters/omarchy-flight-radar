@@ -557,7 +557,9 @@ Panel {
       seeded[live[i].icao24] = {
         lat: live[i].lat,
         lon: live[i].lon,
-        trueTrack: live[i].trueTrack
+        trueTrack: live[i].trueTrack,
+        altitude: live[i].altitude,
+        velocity: live[i].velocity
       }
     }
     heldPositions = seeded
@@ -596,11 +598,25 @@ Panel {
       var ac = aircraft[i]
       var existing = trackedById[ac.icao24]
       if (existing) {
+        existing.dropped = false
         RadarModel.updateTracked(existing, ac, now)
         next[ac.icao24] = existing
       } else {
         next[ac.icao24] = RadarModel.makeTracked(ac, now)
       }
+    }
+
+    // An aircraft missing from one response keeps its blip until the sweep
+    // reaches it, the same as one that has flown out of the scope. Without
+    // this it vanished the instant a response omitted it, and reappeared
+    // wherever it had got to once the line came round.
+    for (var goneIcao in trackedById) {
+      if (next[goneIcao] !== undefined) continue
+      if (heldPositions[goneIcao] === undefined) continue
+
+      var stale = trackedById[goneIcao]
+      stale.dropped = true
+      next[goneIcao] = stale
     }
 
     trackedById = next
@@ -927,7 +943,9 @@ Panel {
         heldPositions[contact.icao24] = {
           lat: contact.lat,
           lon: contact.lon,
-          trueTrack: contact.trueTrack
+          trueTrack: contact.trueTrack,
+          altitude: contact.altitude,
+          velocity: contact.velocity
         }
         moved = true
       }
@@ -944,6 +962,7 @@ Panel {
       if (sweepCrossed(scopeAngle(point.x, point.y), current)) {
         delete heldPositions[icao]
         delete litAt[icao]
+        if (trackedById[icao] && trackedById[icao].dropped) delete trackedById[icao]
         moved = true
       }
     }
