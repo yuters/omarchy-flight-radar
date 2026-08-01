@@ -149,6 +149,12 @@ Panel {
   readonly property color badgeColor: scopeTint
   readonly property color badgeTextColor: Color.background
 
+  // One missed poll plus a minute of grace. Straight-line extrapolation is only
+  // worth anything for a couple of minutes, but polling legitimately slows down
+  // when credits run low, so the cutoff follows the interval between bounds.
+  readonly property int maxTrackAgeMs:
+    Math.max(180000, Math.min(pollIntervalMs + 60000, 600000))
+
   // The balance refills daily at 00:00 UTC.
   function msUntilQuotaReset() {
     var now = new Date()
@@ -577,6 +583,29 @@ Panel {
     drawnAt = -1
   }
 
+  function pruneStaleTracks() {
+    var cutoff = Date.now() - maxTrackAgeMs
+    var kept = ({})
+    var dropped = false
+
+    for (var icao in trackedById) {
+      if (trackedById[icao].lastSeen >= cutoff) {
+        kept[icao] = trackedById[icao]
+        continue
+      }
+      dropped = true
+      delete heldPositions[icao]
+      delete litAt[icao]
+    }
+
+    if (!dropped) return
+
+    trackedById = kept
+    drawnAt = -1
+    rebuildContacts()
+    repaintScope()
+  }
+
   function rebuildContacts() {
     contacts = RadarModel.buildContacts(trackedById, Date.now(),
       centreLat, centreLon, radiusDeg, unitSize)
@@ -691,7 +720,7 @@ Panel {
       if (overheadIds[contact.icao24]) continue      // already counted, not new
 
       var last = notifiedAt[contact.icao24] || 0
-      if (notifyEnabled && now - last > notifyCooldownMs) {
+      if (notifyEnabled && lastError === "" && now - last > notifyCooldownMs) {
         notifiedAt[contact.icao24] = now
         sendNotification(contact)
       }
@@ -1058,7 +1087,10 @@ Panel {
     interval: 10000
     running: radarRoot.watchEnabled || radarRoot.opened
     repeat: true
-    onTriggered: radarRoot.evaluateOverhead()
+    onTriggered: {
+      radarRoot.pruneStaleTracks()
+      radarRoot.evaluateOverhead()
+    }
   }
 
   Timer {
