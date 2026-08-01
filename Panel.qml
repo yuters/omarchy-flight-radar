@@ -112,8 +112,8 @@ Panel {
   readonly property int notifyCooldownMs: Math.round(RadarModel.clampNumber(setting("notifyCooldownMin", 10), 1, 240, 10)) * 60000
   readonly property int watchIntervalSec: Math.round(RadarModel.clampNumber(setting("watchIntervalSec", 60), 30, 900, 60))
 
-  readonly property var queryBox: RadarModel.boundingBox(centreLat, centreLon, radiusDeg)
-  readonly property int requestCredits: RadarModel.requestCredits(queryBox)
+  readonly property var queryBoxes: RadarModel.boundingBoxes(centreLat, centreLon, radiusDeg)
+  readonly property int requestCredits: RadarModel.requestCredits(queryBoxes)
 
   // OpenSky bills by bounding-box area against a daily balance — 400 credits
   // anonymously, 4000 with an account — so the floor is whatever spends a day's
@@ -490,9 +490,13 @@ Panel {
     lastFetchAt = now
     refreshing = true
 
-    var box = queryBox
-    fetchProcess.command = ["bash", helperPath,
-      box.lamin.toFixed(6), box.lomin.toFixed(6), box.lamax.toFixed(6), box.lomax.toFixed(6)]
+    var command = ["bash", helperPath]
+    for (var i = 0; i < queryBoxes.length; i++) {
+      var box = queryBoxes[i]
+      command.push(box.lamin.toFixed(6), box.lomin.toFixed(6),
+        box.lamax.toFixed(6), box.lomax.toFixed(6))
+    }
+    fetchProcess.command = command
     fetchProcess.running = true
   }
 

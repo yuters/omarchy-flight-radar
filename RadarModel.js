@@ -17,6 +17,13 @@ function parseAircraft(state) {
     return isFinite(parsed) ? parsed : 0
   }
 
+  function coordinate(index) {
+    var value = state[index]
+    if (value === null || value === undefined) return null
+    var parsed = parseFloat(value)
+    return isFinite(parsed) ? parsed : null
+  }
+
   function str(index) {
     var value = state[index]
     return value === null || value === undefined ? "" : String(value).replace(/^\s+|\s+$/g, "")
@@ -28,8 +35,8 @@ function parseAircraft(state) {
     originCountry: str(2),
     timePosition: num(3),
     lastContact: num(4),
-    longitude: num(5),
-    latitude: num(6),
+    longitude: coordinate(5),
+    latitude: coordinate(6),
     baroAltitude: num(7),
     onGround: state[8] === true,
     velocity: num(9),
@@ -79,6 +86,9 @@ function parseResponse(raw) {
 
     var parsed = parseAircraft(state)
     if (parsed.icao24 === "") continue
+    if (parsed.latitude === null || parsed.longitude === null) continue
+    if (parsed.latitude < -90 || parsed.latitude > 90) continue
+    if (parsed.longitude < -180 || parsed.longitude > 180) continue
     aircraft.push(parsed)
   }
 
@@ -201,18 +211,45 @@ function boundingBox(centreLat, centreLon, radiusDeg) {
   }
 }
 
+// A WGS84 bounding box cannot wrap across the antimeridian. Split a crossing
+// scope into the two valid boxes OpenSky expects, one on either side.
+function boundingBoxes(centreLat, centreLon, radiusDeg) {
+  var box = boundingBox(centreLat, centreLon, radiusDeg)
+  if (box.lomin < -180) {
+    return [
+      { lamin: box.lamin, lamax: box.lamax, lomin: box.lomin + 360, lomax: 180 },
+      { lamin: box.lamin, lamax: box.lamax, lomin: -180, lomax: box.lomax }
+    ]
+  }
+  if (box.lomax > 180) {
+    return [
+      { lamin: box.lamin, lamax: box.lamax, lomin: box.lomin, lomax: 180 },
+      { lamin: box.lamin, lamax: box.lamax, lomin: -180, lomax: box.lomax - 360 }
+    ]
+  }
+  return [box]
+}
+
 // OpenSky bills /states/all by bounding-box area: 1 credit up to 25 square
 // degrees, then 2, 3 and 4 as it crosses 100 and 400.
 function boxAreaSqDeg(box) {
   return Math.abs(box.lamax - box.lamin) * Math.abs(box.lomax - box.lomin)
 }
 
-function requestCredits(box) {
+function boxCredits(box) {
   var area = boxAreaSqDeg(box)
   if (area <= 25) return 1
   if (area <= 100) return 2
   if (area <= 400) return 3
   return 4
+}
+
+function requestCredits(boxes) {
+  if (typeof boxes.length !== "number") return boxCredits(boxes)
+
+  var credits = 0
+  for (var i = 0; i < boxes.length; i++) credits += boxCredits(boxes[i])
+  return credits
 }
 
 function clampLat(value) {
@@ -388,6 +425,7 @@ if (typeof module !== "undefined") {
     distanceKm: distanceKm,
     bearingDeg: bearingDeg,
     boundingBox: boundingBox,
+    boundingBoxes: boundingBoxes,
     boxAreaSqDeg: boxAreaSqDeg,
     requestCredits: requestCredits,
     rangeNmToDeg: rangeNmToDeg,

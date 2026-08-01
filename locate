@@ -62,9 +62,11 @@ try_gpsd() {
   command -v gpspipe >/dev/null || return 1
 
   local report latitude longitude
+  # `head` deliberately closes the pipe early, so validate its output instead
+  # of treating the expected upstream SIGPIPE as a provider failure.
   report=$(timeout 8 gpspipe -w -n 25 2>/dev/null |
     jq -c 'select(.class == "TPV") | select(.mode >= 2) | select(.lat != null) | [.lat, .lon]' 2>/dev/null |
-    head -1) || return 1
+    head -1 || true)
   [[ -n $report ]] || return 1
 
   latitude=$(printf '%s' "$report" | jq -c '.[0]' 2>/dev/null)
@@ -76,7 +78,7 @@ try_modemmanager() {
   command -v mmcli >/dev/null || return 1
 
   local modem raw latitude longitude
-  modem=$(mmcli -L 2>/dev/null | grep -oE '/Modem/[0-9]+' | head -1) || return 1
+  modem=$(mmcli -L 2>/dev/null | grep -oE '/Modem/[0-9]+' | head -1 || true)
   [[ -n $modem ]] || return 1
 
   raw=$(mmcli -m "${modem##*/}" --location-get --output-json 2>/dev/null) || return 1
@@ -97,7 +99,7 @@ try_gnss_device() {
 
     local sentence
     sentence=$(timeout 6 head -c 4096 "$device" 2>/dev/null |
-      grep -aoE '\$G[PNLA](GGA|RMC),[^*]*' | head -20) || continue
+      grep -aoE '\$G[PNLA](GGA|RMC),[^*]*' | head -20 || true)
     [[ -n $sentence ]] || continue
 
     local result

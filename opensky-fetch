@@ -2,7 +2,7 @@
 
 # Fetch OpenSky Network state vectors for a lat/lon bounding box.
 #
-# Usage: opensky-fetch <lamin> <lomin> <lamax> <lomax>
+# Usage: opensky-fetch <lamin> <lomin> <lamax> <lomax> [<lamin> <lomin> <lamax> <lomax> ...]
 #
 # Prints {"time":…,"authenticated":…,"remaining":…,"states":[…]}, or {"error":"…"}
 # — exiting 0 either way so the panel can render the reason. "remaining" is the
@@ -33,7 +33,8 @@ die_limited() {
   exit 0
 }
 
-[[ $# -eq 4 ]] || die "opensky-fetch expects lamin, lomin, lamax, lomax"
+(( $# >= 4 && $# % 4 == 0 )) ||
+  die "opensky-fetch expects one or more lamin, lomin, lamax, lomax groups"
 
 urlencode() {
   local raw="$1" out="" ch i
@@ -95,8 +96,8 @@ RETRY_AFTER=""
 # is there because an absent header writes an empty line, and command
 # substitution would strip it along with the newline, shifting every field.
 request_states() {
-  local bearer="$1" config raw
-  config="url = \"$STATES_URL?$QUERY\""
+  local bearer="$1" query="$2" config raw
+  config="url = \"$STATES_URL?$query\""
   [[ -n $bearer ]] && config+=$'\n'"header = \"Authorization: Bearer $bearer\""
   raw=$(printf '%s\n' "$config" | curl -sS --max-time 20 --config - 2>/dev/null \
     -w '\n%{http_code}\n%header{x-rate-limit-remaining}\n%header{x-rate-limit-retry-after-seconds}\n.') || {
@@ -121,31 +122,42 @@ request_states() {
   [[ $HTTP_CODE == 2* ]]
 }
 
-QUERY="lamin=$1&lomin=$2&lamax=$3&lomax=$4"
-
 token=$(read_cached_token) || token=$(fetch_token) || token=""
 
 readonly LIMIT_MESSAGE="OpenSky's daily request limit is spent — it resets at 00:00 UTC"
 
-if ! request_states "$token"; then
-  [[ $HTTP_CODE == 429 ]] && die_limited "$LIMIT_MESSAGE"
+request_with_auth() {
+  local query="$1"
 
-  if [[ -n $token ]]; then
-    rm -f "$TOKEN_FILE"
-    token=$(fetch_token) || token=""
-    if ! request_states "$token"; then
-      [[ $HTTP_CODE == 429 ]] && die_limited "$LIMIT_MESSAGE"
-      die "OpenSky request failed — network error or the service is unavailable"
-    fi
-  else
+  request_states "$token" "$query" && return 0
+  [[ $HTTP_CODE == 429 ]] && die_limited "$LIMIT_MESSAGE"
+  [[ -n $token ]] || return 1
+
+  rm -f "$TOKEN_FILE"
+  token=$(fetch_token) || token=""
+  request_states "$token" "$query" && return 0
+  [[ $HTTP_CODE == 429 ]] && die_limited "$LIMIT_MESSAGE"
+  return 1
+}
+
+responses=()
+while (( $# > 0 )); do
+  query="lamin=$1&lomin=$2&lamax=$3&lomax=$4"
+  request_with_auth "$query" ||
     die "OpenSky request failed — network error or the service is unavailable"
-  fi
-fi
+  responses+=("$RESPONSE")
+  shift 4
+done
 
 authenticated=false
 [[ -n $token ]] && authenticated=true
 
-printf '%s' "$RESPONSE" | jq -c --argjson authed "$authenticated" \
+printf '%s\n' "${responses[@]}" | jq -sc --argjson authed "$authenticated" \
   --argjson remaining "${REMAINING:-null}" \
-  '{time: (.time // 0), authenticated: $authed, remaining: $remaining, states: (.states // [])}' 2>/dev/null ||
+  '{
+    time: ([.[] | (.time // 0)] | max // 0),
+    authenticated: $authed,
+    remaining: $remaining,
+    states: ([.[] | (.states // [])[]] | unique_by(.[0]))
+  }' 2>/dev/null ||
   die "OpenSky returned a response that could not be parsed"
