@@ -106,6 +106,14 @@ Panel {
   readonly property bool showLabels: setting("labels", true)
   readonly property bool showTriangles: setting("triangles", true)
   readonly property bool aviationUnits: setting("aviationUnits", true)
+  property bool crtMode: false
+
+  // A ShaderEffect that fails to compile draws nothing at all, which would empty
+  // the panel rather than degrade it. Set once, so a failure falls back to the
+  // ordinary panel and stays there.
+  property bool crtShaderFailed: false
+
+  function failCrtShader() { crtShaderFailed = true }
 
   readonly property int mapZoom: Math.round(RadarModel.clampNumber(setting("mapZoom", 13), 1, 20, 13))
 
@@ -157,6 +165,13 @@ Panel {
   readonly property color labelColor: tinted(lightTheme ? 0.75 : 0.62)
   readonly property color overheadRingColor: tinted(0.55)
   readonly property color glowColor: lightTheme ? Qt.darker(scopeTint, 1.3) : Qt.lighter(scopeTint, 1.4)
+
+  readonly property color crtScreenBackground: Color.popups.background
+
+  readonly property color crtBezelColor: Qt.rgba(
+    crtScreenBackground.r + (foreground.r - crtScreenBackground.r) * (lightTheme ? 0.055 : 0.13),
+    crtScreenBackground.g + (foreground.g - crtScreenBackground.g) * (lightTheme ? 0.055 : 0.13),
+    crtScreenBackground.b + (foreground.b - crtScreenBackground.b) * (lightTheme ? 0.055 : 0.13), 1)
 
   readonly property color badgeColor: scopeTint
   readonly property color badgeTextColor: Color.background
@@ -1449,8 +1464,10 @@ Panel {
     bar: radarRoot.bar
     open: radarRoot.opened
     focusTarget: keyCatcher
+    padding: radarRoot.crtMode ? 0 : Style.spacing.popupPadding
     contentWidth: radarPanel.fittedContentWidth(Math.max(radarRoot.scopeSize + Style.space(24), Style.space(430)))
-    contentHeight: radarPanel.fittedContentHeight(radarColumn.implicitHeight,
+    contentHeight: radarPanel.fittedContentHeight(radarColumn.implicitHeight
+      + (radarRoot.crtMode ? Style.space(12) : 0),
       Style.space(radarRoot.settingsOpen ? 820 : 640))
 
     PanelKeyCatcher {
@@ -1468,9 +1485,42 @@ Panel {
         if (radarRoot.removeConfirmOpen) return
 
         if (text === "r" || text === "R") radarRoot.hardRefresh()
+        else if (text === "c" || text === "C") radarRoot.crtMode = !radarRoot.crtMode
         else if (text === "s" || text === "S") {
           radarRoot.settingsOpen = !radarRoot.settingsOpen
           if (radarRoot.settingsOpen) radarRoot.loadCentreFields()
+        }
+      }
+
+      Rectangle {
+        id: crtBezel
+        anchors.fill: parent
+        visible: radarRoot.crtMode
+        radius: Style.space(12)
+        color: radarRoot.crtBezelColor
+        border.width: Math.max(1, Style.spaceReal(1))
+        border.color: Qt.rgba(1, 1, 1, radarRoot.lightTheme ? 0.12 : 0.075)
+
+        Rectangle {
+          anchors.fill: parent
+          anchors.margins: Style.space(1)
+          radius: Style.space(11)
+          color: radarRoot.crtScreenBackground
+          border.width: Math.max(1, Style.spaceReal(1))
+          border.color: radarRoot.lightTheme
+            ? Qt.rgba(0, 0, 0, 0.18) : Qt.rgba(0, 0, 0, 0.72)
+        }
+
+        // A small asymmetric highlight makes the shell read as moulded plastic
+        // rather than another flat panel border.
+        Rectangle {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.margins: Style.space(1)
+          height: Math.max(1, Style.spaceReal(1))
+          radius: height / 2
+          color: Qt.rgba(1, 1, 1, radarRoot.lightTheme ? 0.22 : 0.08)
         }
       }
 
@@ -1478,11 +1528,30 @@ Panel {
         id: scopeScroll
         anchors.fill: parent
         contentWidth: width
-        contentHeight: radarColumn.implicitHeight
+        contentHeight: radarColumn.y + radarColumn.implicitHeight
+          + (radarRoot.crtMode ? Style.space(16) : 0)
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
+
+        layer.enabled: radarRoot.crtMode && !radarRoot.crtShaderFailed
+        layer.smooth: true
+        layer.effect: ShaderEffect {
+          property var source
+          property real lightMode: radarRoot.lightTheme ? 1.0 : 0.0
+          property color backgroundColor: radarRoot.crtScreenBackground
+          // The layer texture is sized in device pixels, and the scanline and
+          // grille pitch are counted in them.
+          property vector2d sourceSize: Qt.vector2d(width * Screen.devicePixelRatio,
+                                                    height * Screen.devicePixelRatio)
+          fragmentShader: Qt.resolvedUrl("crt.frag.qsb")
+
+          // Deferred: dropping the layer from inside the effect's own creation
+          // leaves the item hidden rather than restoring it.
+          onStatusChanged: if (status === ShaderEffect.Error) Qt.callLater(radarRoot.failCrtShader)
+          Component.onCompleted: if (status === ShaderEffect.Error) Qt.callLater(radarRoot.failCrtShader)
+        }
 
         MouseArea {
           width: scopeScroll.contentWidth
@@ -1497,7 +1566,9 @@ Panel {
 
         Column {
           id: radarColumn
-          width: scopeScroll.width
+          x: radarRoot.crtMode ? Style.space(10) : 0
+          y: radarRoot.crtMode ? Style.space(16) : 0
+          width: scopeScroll.width - (radarRoot.crtMode ? Style.space(20) : 0)
           spacing: Style.space(12)
 
           PanelHero {

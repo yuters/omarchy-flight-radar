@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# Bake crt.frag into crt.frag.qsb, the form Qt loads at runtime.
+#
+# Usage: build-shader [--check]
+#
+# --check rebuilds into a temporary file and compares, exiting non-zero if the
+# committed .qsb no longer matches the .frag beside it.
+
+set -euo pipefail
+
+readonly PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SOURCE="$PLUGIN_DIR/crt.frag"
+readonly BAKED="$PLUGIN_DIR/crt.frag.qsb"
+
+# Every target Qt's RHI may ask for: GL ES 2 and legacy desktop GL alongside the
+# modern ones. A missing variant fails to render rather than degrading, so the
+# shader stays within what ESSL 100 can express.
+readonly GLSL_TARGETS="100es,120,150,300es,330"
+
+# The .qsb container format, pinned to the oldest Qt intended to load it rather
+# than left at "latest", which silently follows whichever Qt baked the file.
+# Newer Qt reads older containers; the reverse fails. qsb offers 64, 65 and
+# latest, and 65 already sits below Quickshell's own Qt floor.
+readonly QSB_VERSION="65"
+
+find_qsb() {
+  local candidate
+  for candidate in qsb qsb-qt6 /usr/lib/qt6/bin/qsb /usr/lib/x86_64-linux-gnu/qt6/bin/qsb; do
+    command -v "$candidate" >/dev/null 2>&1 && { printf '%s' "$candidate"; return 0; }
+    [[ -x $candidate ]] && { printf '%s' "$candidate"; return 0; }
+  done
+  return 1
+}
+
+QSB=$(find_qsb) || {
+  echo "build-shader: qsb not found — install qt6-shadertools" >&2
+  exit 1
+}
+
+if [[ ${1:-} == --check ]]; then
+  tmp=$(mktemp)
+  trap 'rm -f "$tmp"' EXIT
+  "$QSB" --qsbversion "$QSB_VERSION" --glsl "$GLSL_TARGETS" --hlsl 50 --msl 12 -o "$tmp" "$SOURCE"
+  cmp -s "$tmp" "$BAKED" || {
+    echo "build-shader: crt.frag.qsb is stale — run ./build-shader" >&2
+    exit 1
+  }
+  echo "crt.frag.qsb matches crt.frag"
+  exit 0
+fi
+
+"$QSB" --qsbversion "$QSB_VERSION" --glsl "$GLSL_TARGETS" --hlsl 50 --msl 12 -o "$BAKED" "$SOURCE"
+echo "baked $BAKED"
