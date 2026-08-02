@@ -2104,12 +2104,20 @@ Panel {
             }
 
             MouseArea {
-              id: scopeMouse
               anchors.fill: parent
               hoverEnabled: true
               acceptedButtons: Qt.LeftButton
-              cursorShape: radarRoot.contactAtCanvas(mouseX, mouseY, width)
-                ? Qt.PointingHandCursor : Qt.ArrowCursor
+
+              // Tracked on movement rather than bound: contactAtCanvas caches
+              // its projection into drawn and drawnAt, and a binding that writes
+              // what it reads is a binding loop.
+              property bool overContact: false
+              cursorShape: overContact ? Qt.PointingHandCursor : Qt.ArrowCursor
+
+              onPositionChanged: function(mouse) {
+                overContact = radarRoot.contactAtCanvas(mouse.x, mouse.y, width) !== null
+              }
+              onExited: overContact = false
 
               onPressed: keyCatcher.forceActiveFocus()
 
