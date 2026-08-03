@@ -44,7 +44,9 @@ Panel {
   property string settingsNotice: ""
   property bool settingsNoticeIsError: false
   property bool credentialsSaving: false
+  property var credentialsPending: ({})
   property string credentialsAction: ""
+  property bool configWriteFailed: false
   property bool removeConfirmOpen: false
   property bool forecastNotifyDraft: false
 
@@ -210,8 +212,7 @@ Panel {
 
   readonly property string helperPath: Qt.resolvedUrl("opensky-fetch").toString().replace(/^file:\/\//, "")
   readonly property string locatePath: Qt.resolvedUrl("locate").toString().replace(/^file:\/\//, "")
-  readonly property string credentialsPath: Qt.resolvedUrl("save-credentials").toString().replace(/^file:\/\//, "")
-  readonly property string credentialsFile: Qt.resolvedUrl("opensky.json").toString().replace(/^file:\/\//, "")
+  readonly property string tokenPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omarchy-flight-radar/token"
 
   property bool hasCredentials: false
 
@@ -241,7 +242,9 @@ Panel {
 
   function checkCredentials() {
     if (credentialsCheck.running) return
-    credentialsCheck.command = ["test", "-s", credentialsFile]
+    credentialsCheck.command = ["bash", "-c",
+      'jq -e ".clientId and .clientSecret" "$1" >/dev/null 2>&1',
+      "flight-radar-credentials", configPath]
     credentialsCheck.running = true
   }
 
@@ -257,26 +260,30 @@ Panel {
     setNotice("", false)
     credentialsSaving = true
     credentialsAction = "save"
-    credentialsProcess.stdinEnabled = true
-    credentialsProcess.command = ["bash", credentialsPath]
+    credentialsPending = { clientId: id, clientSecret: secret }
+
+    // FileView preserves a mode but cannot set one, so the file has to be 0600
+    // before the secret lands in it.
+    credentialsProcess.command = ["bash", "-c",
+      'set -e; if [ -e "$1" ]; then chmod 600 -- "$1"; '
+        + 'else install -D -m600 /dev/null "$1"; fi; rm -f -- "$2"',
+      "flight-radar-credentials", radarRoot.configPath, radarRoot.tokenPath]
     credentialsProcess.running = true
-    credentialsProcess.write(JSON.stringify({ clientId: id, clientSecret: secret }))
-    credentialsProcess.stdinEnabled = false
   }
 
   function clearCredentials() {
     setNotice("", false)
     credentialsSaving = true
     credentialsAction = "clear"
-    credentialsProcess.stdinEnabled = false
-    credentialsProcess.command = ["bash", credentialsPath, "--clear"]
+    credentialsPending = { clientId: null, clientSecret: null }
+    credentialsProcess.command = ["rm", "-f", radarRoot.tokenPath]
     credentialsProcess.running = true
   }
 
-  // Panel-edited settings go to the plugin's own file, not to shell.json: any
-  // shell.json write rebuilds every bar widget, which would tear the panel down
-  // mid-edit and discard all tracked aircraft.
-  readonly property string configPath: Qt.resolvedUrl("settings.json").toString().replace(/^file:\/\//, "")
+  readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/omarchy/settings"
+  readonly property string configPath: stateDir + "/flight-radar.json"
+
+  readonly property string legacyConfigPath: Qt.resolvedUrl("settings.json").toString().replace(/^file:\/\//, "")
 
   property var userConfig: ({})
 
@@ -332,7 +339,40 @@ Panel {
     }
 
     userConfig = next
+    configWriteFailed = false
     configFile.setText(JSON.stringify(next, null, 2) + "\n")
+    return !configWriteFailed
+  }
+
+  function finishCredentialsUpdate() {
+    var action = credentialsAction
+    credentialsSaving = false
+    credentialsPending = ({})
+    credentialsAction = ""
+
+    if (action === "clear") {
+      clientIdField.text = ""
+      clientSecretField.text = ""
+      setNotice("Credentials removed — back to anonymous access.", false)
+    } else {
+      clientSecretField.text = ""
+      setNotice("Credentials saved.", false)
+    }
+
+    checkCredentials()
+    refresh(true)
+  }
+
+  function failCredentialsWrite() {
+    credentialsSaving = false
+    credentialsPending = ({})
+    credentialsAction = ""
+    setNotice("Could not update credentials", true)
+
+    // saveConfig updates the in-memory copy before FileView writes it. Restore
+    // the last durable version when that write fails.
+    configFile.reload()
+    checkCredentials()
   }
 
   readonly property string overheadText: RadarModel.formatDistance(overheadRadiusNm * 1.852, aviationUnits)
@@ -1318,20 +1358,32 @@ Panel {
   FileView {
     id: configFile
     path: radarRoot.configPath
-    watchChanges: true
+    // Creating a new credential file briefly produces an empty 0600 file.
+    // Ignore that intermediate filesystem event so it cannot replace the
+    // legacy settings currently held in memory.
+    watchChanges: !radarRoot.credentialsSaving
     atomicWrites: true
+    blockWrites: true
+    printErrors: false
+
+    onLoaded: radarRoot.applyUserConfig(text())
+    onLoadFailed: legacyConfigFile.path = radarRoot.legacyConfigPath
+    onFileChanged: reload()
+    onSaveFailed: radarRoot.configWriteFailed = true
+  }
+
+  FileView {
+    id: legacyConfigFile
     printErrors: false
 
     onLoaded: radarRoot.applyUserConfig(text())
     onLoadFailed: radarRoot.applyUserConfig("{}")
-    onFileChanged: reload()
   }
 
   Process {
     id: credentialsProcess
     running: false
     command: []
-    stdinEnabled: true
 
     stderr: StdioCollector {
       id: credentialsStderr
@@ -1339,25 +1391,17 @@ Panel {
     }
 
     onExited: function(exitCode) {
-      radarRoot.credentialsSaving = false
-
       if (exitCode !== 0) {
+        radarRoot.credentialsSaving = false
+        radarRoot.credentialsPending = ({})
+        radarRoot.credentialsAction = ""
         var detail = String(credentialsStderr.text || "").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "")
         radarRoot.setNotice(detail !== "" ? detail : "Could not update credentials", true)
         return
       }
 
-      if (radarRoot.credentialsAction === "clear") {
-        clientIdField.text = ""
-        clientSecretField.text = ""
-        radarRoot.setNotice("Credentials removed — back to anonymous access.", false)
-      } else {
-        clientSecretField.text = ""
-        radarRoot.setNotice("Credentials saved.", false)
-      }
-
-      radarRoot.checkCredentials()
-      radarRoot.refresh(true)
+      if (radarRoot.saveConfig(radarRoot.credentialsPending)) radarRoot.finishCredentialsUpdate()
+      else radarRoot.failCredentialsWrite()
     }
   }
 

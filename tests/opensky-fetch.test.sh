@@ -6,7 +6,7 @@ readonly REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly TEST_DIR="$(mktemp -d)"
 readonly RADAR_CURL_COUNT_FILE="$TEST_DIR/curl-count"
 export RADAR_CURL_COUNT_FILE
-export OMARCHY_RADAR_CREDS="$TEST_DIR/no-credentials"
+export OMARCHY_RADAR_CONFIG="$TEST_DIR/no-credentials"
 export XDG_RUNTIME_DIR="$TEST_DIR"
 
 cleanup() {

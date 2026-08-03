@@ -36,7 +36,7 @@ jobs:
         run: jq -e . manifest.json >/dev/null
 
       - name: Validate Bash syntax
-        run: bash -n opensky-fetch locate save-credentials build-shader tests/opensky-fetch.test.sh
+        run: bash -n opensky-fetch locate build-shader tests/opensky-fetch.test.sh
 
       - name: Test radar model
         run: node --test tests/radar-model.test.js

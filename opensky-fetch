@@ -9,16 +9,16 @@
 # credit balance OpenSky reports, or null if it said nothing. A refusal for rate
 # limiting carries "limited": true and "retryAfter" in seconds.
 #
-# Credentials are optional (4000 requests/day instead of 400) and live beside
-# this script in <plugin dir>/opensky.json at mode 0600, which .gitignore
-# excludes. Never ship that file in an archive; removing the plugin removes it.
+# Credentials are optional (4000 requests/day instead of 400) and are read from
+# the panel's settings file, which is kept at 0600 while it holds them.
 
 set -uo pipefail
 
 readonly TOKEN_URL="https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 readonly STATES_URL="https://opensky-network.org/api/states/all"
-readonly PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly CREDS_FILE="${OMARCHY_RADAR_CREDS:-$PLUGIN_DIR/opensky.json}"
+readonly STATE_DIR="$HOME/.local/state/omarchy/settings"
+readonly CONFIG_FILE="${OMARCHY_RADAR_CONFIG:-$STATE_DIR/flight-radar.json}"
+
 readonly CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/omarchy-flight-radar"
 readonly TOKEN_FILE="$CACHE_DIR/token"
 
@@ -58,11 +58,11 @@ read_cached_token() {
 }
 
 fetch_token() {
-  [[ -r $CREDS_FILE ]] || return 1
+  [[ -r $CONFIG_FILE ]] || return 1
 
   local id secret body response token tmp
-  id=$(jq -r '.clientId // .client_id // empty' "$CREDS_FILE" 2>/dev/null) || return 1
-  secret=$(jq -r '.clientSecret // .client_secret // empty' "$CREDS_FILE" 2>/dev/null) || return 1
+  id=$(jq -r '.clientId // .client_id // empty' "$CONFIG_FILE" 2>/dev/null) || return 1
+  secret=$(jq -r '.clientSecret // .client_secret // empty' "$CONFIG_FILE" 2>/dev/null) || return 1
   [[ -n $id && -n $secret ]] || return 1
 
   body="grant_type=client_credentials&client_id=$(urlencode "$id")&client_secret=$(urlencode "$secret")"
