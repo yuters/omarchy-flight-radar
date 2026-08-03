@@ -56,12 +56,19 @@ Panel {
   property var litAt: ({})
   property var heldPositions: ({})
   property var drawn: []
+  property string hoveredContactId: ""
   property real drawnAt: -1
   property real prevSweepAngle: -1
+  property real labelAnimationUntil: 0
 
   readonly property real sweepRadiansPerMs: 1 / 3000
   readonly property real sweepDegrees: (frameNow - epochMs) * sweepRadiansPerMs * 180 / Math.PI
   readonly property real sweepPeriodMs: Math.PI * 2 / sweepRadiansPerMs
+  readonly property int glowAttackMs: 180
+  readonly property int glowSpreadMs: 320
+  readonly property real glowOvershoot: 3.5
+  readonly property int contactTranslateMs: 400
+  readonly property real dimLabelOpacity: 0.32
 
   // The fan's bright edge sits at maximum perpendicular offset, so it leads the
   // base angle by atan(offset / reach) — 40°. Lighting contacts at the base
@@ -648,8 +655,34 @@ Panel {
     return angle < 0 ? angle + Math.PI * 2 : angle
   }
 
+  // A hold is the blip as the sweep last painted it, so a contact sat still for
+  // a revolution and then jumped. It slides onto the new fix instead.
   function sweptPositions() {
-    return showSweep ? heldPositions : null
+    if (!showSweep) return null
+
+    var now = frameNow > 0 ? frameNow : Date.now()
+    var sliding = ({})
+
+    for (var icao in heldPositions) {
+      var hold = heldPositions[icao]
+      var t = hold.at === undefined ? 1 : (now - hold.at) / contactTranslateMs
+      if (t >= 1) {
+        sliding[icao] = hold
+        continue
+      }
+
+      var eased = easeOutCubic(Math.max(0, t))
+      sliding[icao] = {
+        lat: hold.fromLat + (hold.lat - hold.fromLat) * eased,
+        lon: hold.fromLon + (hold.lon - hold.fromLon) * eased,
+        trueTrack: hold.trueTrack,
+        callsign: hold.callsign,
+        altitude: hold.altitude,
+        velocity: hold.velocity
+      }
+    }
+
+    return sliding
   }
 
   function mergeAircraft(aircraft) {
@@ -837,6 +870,14 @@ Panel {
     return best
   }
 
+  function setHoveredContact(contact) {
+    var nextId = contact ? contact.icao24 : ""
+    if (hoveredContactId === nextId) return
+
+    hoveredContactId = nextId
+    labelOverlay.requestPaint()
+  }
+
   function sendDesktopNotification(text) {
     Quickshell.execDetached(["omarchy-notification-send",
       "--app-name", "radar", "-u", "low", "-g", radarGlyph,
@@ -1007,15 +1048,21 @@ Panel {
       inRange[contact.icao24] = true
 
       if (sweepCrossed(scopeAngle(contact.x, contact.y), current)) {
+        var previous = heldPositions[contact.icao24]
         litAt[contact.icao24] = now
         heldPositions[contact.icao24] = {
           lat: contact.lat,
           lon: contact.lon,
+          fromLat: previous ? previous.lat : contact.lat,
+          fromLon: previous ? previous.lon : contact.lon,
+          at: now,
           trueTrack: contact.trueTrack,
           callsign: contact.callsign,
           altitude: contact.altitude,
           velocity: contact.velocity
         }
+        if (previous)
+          labelAnimationUntil = Math.max(labelAnimationUntil, now + contactTranslateMs)
         moved = true
       }
     }
@@ -1038,7 +1085,7 @@ Panel {
 
     prevSweepAngle = current
     drawnAt = -1
-    if (moved) overlay.requestPaint()
+    if (moved) labelOverlay.requestPaint()
   }
 
   function contactGlow(icao24, now) {
@@ -1048,19 +1095,47 @@ Panel {
     if (lit === undefined) return 0
 
     var age = now - lit
-    if (age <= 0) return 1
+    if (age < 0) return 0
+
+    if (age < glowAttackMs) return easeOutQuad(age / glowAttackMs)
+
     return Math.max(0, 1 - age / sweepPeriodMs)
   }
 
+  // The halo opens out from the blip as it lights rather than appearing at full
+  // width.
+  // Easing.OutBack and Easing.OutQuad, sampled here because a QML animation
+  // binds to an item property and these curves drive a Canvas.
+  function easeOutBack(t, overshoot) {
+    var u = t - 1
+    return 1 + (overshoot + 1) * u * u * u + overshoot * u * u
+  }
 
+  function easeOutQuad(t) {
+    return t * (2 - t)
+  }
 
+  function easeOutCubic(t) {
+    var u = 1 - t
+    return 1 - u * u * u
+  }
 
-  function paintContactGlow(ctx, contact, glow) {
+  function glowSpread(icao24, now) {
+    var lit = litAt[icao24]
+    if (lit === undefined) return 1
+
+    var age = now - lit
+    if (age >= glowSpreadMs) return 1
+
+    return 0.2 + 0.8 * easeOutBack(Math.max(0, age) / glowSpreadMs, glowOvershoot)
+  }
+
+  function paintContactGlow(ctx, contact, glow, spread) {
     if (glow <= 0.02) return
 
     var layers = 4
     for (var i = layers; i >= 1; i--) {
-      var radius = 2.5 + i * 2.4
+      var radius = (2.5 + i * 2.4) * spread
       var alpha = glow * 0.15 * (1 - (i - 1) / (layers + 1))
       ctx.fillStyle = Qt.rgba(glowColor.r, glowColor.g, glowColor.b, alpha)
       ctx.beginPath()
@@ -1107,11 +1182,9 @@ Panel {
     return true
   }
 
-  function boxesOverlap(a, b) {
-    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
-  }
-
-  function paintLabelBlock(ctx, block, x, y) {
+  function paintLabelBlock(ctx, block, x, y, opacity) {
+    ctx.save()
+    ctx.globalAlpha = opacity
     ctx.fillStyle = labelColor
     ctx.font = "8px \"" + fontFamily + "\""
     ctx.textAlign = "left"
@@ -1119,37 +1192,43 @@ Panel {
 
     for (var i = 0; i < block.lines.length; i++)
       ctx.fillText(block.lines[i], x, y + i * block.lineHeight)
+    ctx.restore()
+  }
+
+  function paintContactLabel(ctx, contact, centre, outer, opacity) {
+    var block = labelBlock(contact)
+    var offsets = [[5, 5], [-5 - block.w, 5], [5, -5 - block.h], [-5 - block.w, -5 - block.h]]
+
+    // Labels may overlap each other, but still choose another side of the blip
+    // when the preferred lower-right position would cross the radar edge.
+    for (var i = 0; i < offsets.length; i++) {
+      var box = {
+        x: contact.x + offsets[i][0],
+        y: contact.y + offsets[i][1],
+        w: block.w,
+        h: block.h
+      }
+      if (!boxInsideScope(box, centre, outer)) continue
+
+      paintLabelBlock(ctx, block, box.x, box.y, opacity)
+      return
+    }
   }
 
   function paintLabels(ctx, visible, centre, outer) {
-    var placed = []
+    var hovered = null
 
+    // Paint the highlighted label last so dim labels cannot obscure it where
+    // overlaps occur.
     for (var i = 0; i < visible.length; i++) {
-      var contact = visible[i]
-      var block = labelBlock(contact)
-      var offsets = [[5, 5], [-5 - block.w, 5], [5, -5 - block.h], [-5 - block.w, -5 - block.h]]
-
-      for (var j = 0; j < offsets.length; j++) {
-        var box = {
-          x: contact.x + offsets[j][0],
-          y: contact.y + offsets[j][1],
-          w: block.w,
-          h: block.h
-        }
-
-        if (!boxInsideScope(box, centre, outer)) continue
-
-        var collides = false
-        for (var k = 0; k < placed.length; k++) {
-          if (boxesOverlap(box, placed[k])) { collides = true; break }
-        }
-        if (collides) continue
-
-        paintLabelBlock(ctx, block, box.x, box.y)
-        placed.push(box)
-        break
+      if (visible[i].icao24 === hoveredContactId) {
+        hovered = visible[i]
+        continue
       }
+      paintContactLabel(ctx, visible[i], centre, outer, dimLabelOpacity)
     }
+
+    if (hovered) paintContactLabel(ctx, hovered, centre, outer, 1)
   }
 
   function paintContact(ctx, contact, glow) {
@@ -1198,7 +1277,7 @@ Panel {
     var glows = []
     for (var g = 0; g < visible.length; g++) {
       glows.push(contactGlow(visible[g].icao24, now))
-      paintContactGlow(ctx, visible[g], glows[g])
+      paintContactGlow(ctx, visible[g], glows[g], glowSpread(visible[g].icao24, now))
     }
 
     for (var i = 0; i < visible.length; i++) paintContact(ctx, visible[i], glows[i])
@@ -1206,9 +1285,8 @@ Panel {
     ctx.restore()
   }
 
-  // Rings never move, and labels only move when the sweep repaints a contact,
-  // so they sit on a canvas of their own above the animation rather than being
-  // redrawn with every frame of it.
+  // Rings never move, so they stay on a canvas of their own rather than being
+  // redrawn with every frame of the contact animation.
   function paintOverlay(ctx) {
     var centre = unitSize / 2 - 1
     var outer = unitSize / 2 - 1
@@ -1227,14 +1305,27 @@ Panel {
     if (overheadRing >= 3 && overheadRing < outer)
       paintRing(ctx, centre, centre, overheadRing, overheadRingColor)
 
-    if (showLabels) paintLabels(ctx, drawnContacts(), centre, outer)
+    ctx.restore()
+  }
 
+  function paintLabelOverlay(ctx) {
+    if (!showLabels) return
+
+    var centre = unitSize / 2 - 1
+    var outer = unitSize / 2 - 1
+
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(centre, centre, outer, 0, Math.PI * 2)
+    ctx.clip()
+    paintLabels(ctx, drawnContacts(), centre, outer)
     ctx.restore()
   }
 
   function repaintScope() {
     scope.requestPaint()
     overlay.requestPaint()
+    labelOverlay.requestPaint()
   }
 
   implicitWidth: button.implicitWidth
@@ -1275,7 +1366,9 @@ Panel {
     clearForecast()
     heldPositions = ({})
     litAt = ({})
+    hoveredContactId = ""
     drawnAt = -1
+    labelAnimationUntil = 0
     initialized = false
     lastError = ""
     syncContactModel([])
@@ -1307,7 +1400,9 @@ Panel {
       // as every contact moving at once.
       heldPositions = ({})
       litAt = ({})
+      hoveredContactId = ""
       drawnAt = -1
+      labelAnimationUntil = 0
       repaintScope()
       return
     }
@@ -1354,15 +1449,22 @@ Panel {
     }
   }
 
-  Timer {
-    interval: 50
-    running: radarRoot.opened
-    repeat: true
+  FrameAnimation {
+    running: radarRoot.opened && radarRoot.radarOn
     onTriggered: {
       radarRoot.frameNow = Date.now()
       radarRoot.updateSweepHits()
+      if (scopeMouse.containsMouse) scopeMouse.updateHoveredContact()
       scope.requestPaint()
-      if (!radarRoot.showSweep) overlay.requestPaint()
+      if (!radarRoot.showSweep) {
+        labelOverlay.requestPaint()
+      } else if (radarRoot.labelAnimationUntil > 0) {
+        // Keep one repaint on or after the deadline so the label lands exactly
+        // on the held position even when no frame occurs at the 400 ms boundary.
+        labelOverlay.requestPaint()
+        if (radarRoot.frameNow >= radarRoot.labelAnimationUntil)
+          radarRoot.labelAnimationUntil = 0
+      }
     }
   }
 
@@ -2246,7 +2348,26 @@ Panel {
               }
             }
 
+            Canvas {
+              id: labelOverlay
+              anchors.fill: parent
+              renderStrategy: Canvas.Cooperative
+
+              onPaint: {
+                var ctx = getContext("2d")
+                if (!ctx) return
+
+                ctx.reset()
+                ctx.save()
+                var k = width / radarRoot.unitSize
+                ctx.scale(k, k)
+                radarRoot.paintLabelOverlay(ctx)
+                ctx.restore()
+              }
+            }
+
             MouseArea {
+              id: scopeMouse
               anchors.fill: parent
               hoverEnabled: true
               acceptedButtons: Qt.LeftButton
@@ -2254,13 +2375,16 @@ Panel {
               // Tracked on movement rather than bound: contactAtCanvas caches
               // its projection into drawn and drawnAt, and a binding that writes
               // what it reads is a binding loop.
-              property bool overContact: false
+              readonly property bool overContact: radarRoot.hoveredContactId !== ""
               cursorShape: overContact ? Qt.PointingHandCursor : Qt.ArrowCursor
 
-              onPositionChanged: function(mouse) {
-                overContact = radarRoot.contactAtCanvas(mouse.x, mouse.y, width) !== null
+              function updateHoveredContact() {
+                radarRoot.setHoveredContact(
+                  radarRoot.contactAtCanvas(mouseX, mouseY, width))
               }
-              onExited: overContact = false
+
+              onPositionChanged: updateHoveredContact()
+              onExited: radarRoot.setHoveredContact(null)
 
               onPressed: keyCatcher.forceActiveFocus()
 
