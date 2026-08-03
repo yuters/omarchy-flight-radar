@@ -18,6 +18,7 @@ Panel {
   property string lastError: ""
   property bool initialized: false
   property bool refreshing: false
+  property bool discardFetchOutput: false
   property bool authenticated: false
   property string lastUpdatedAt: ""
   property real frameNow: 0
@@ -120,6 +121,10 @@ Panel {
   readonly property int mapZoom: Math.round(RadarModel.clampNumber(setting("mapZoom", 13), 1, 20, 13))
 
   readonly property bool watchEnabled: setting("watch", true)
+  readonly property bool radarOn: conf("radarOn", true)
+  readonly property string statusText: !radarOn ? "OFF"
+    : (refreshing ? "SYNC"
+      : (limitReached ? "LIMIT" : (lastError !== "" ? "OFFLINE" : "LIVE")))
   readonly property bool notifyEnabled: setting("notify", true)
   readonly property bool forecastNotifyEnabled: conf("forecastNotify", true)
   // Only the scope is ever fetched, so an overhead radius past the range would
@@ -326,7 +331,7 @@ Panel {
     configLoaded = true
 
     if (opened && !centreFieldsLoaded) loadCentreFields()
-    if (first && !hasManualCentre) resolveAutoLocation()
+    if (first && radarOn && !hasManualCentre) resolveAutoLocation()
   }
 
   function saveConfig(values) {
@@ -556,6 +561,7 @@ Panel {
   }
 
   function refresh(force) {
+    if (!configLoaded || !radarOn) return
     if (fetchProcess.running) return
     if (!hasCentre) {
       resolveAutoLocation()
@@ -1046,6 +1052,9 @@ Panel {
     return Math.max(0, 1 - age / sweepPeriodMs)
   }
 
+
+
+
   function paintContactGlow(ctx, contact, glow) {
     if (glow <= 0.02) return
 
@@ -1246,6 +1255,33 @@ Panel {
   onCentreLatChanged: repaintScope()
   onCentreLonChanged: repaintScope()
 
+  onRadarOnChanged: {
+    if (radarOn) {
+      hardRefresh()
+      return
+    }
+
+    notificationBatchTimer.stop()
+    if (fetchProcess.running) {
+      discardFetchOutput = true
+      fetchProcess.running = false
+    }
+
+    refreshing = false
+    trackedById = ({})
+    contacts = []
+    pendingNotifications = []
+    clearOverhead()
+    clearForecast()
+    heldPositions = ({})
+    litAt = ({})
+    drawnAt = -1
+    initialized = false
+    lastError = ""
+    syncContactModel([])
+    repaintScope()
+  }
+
   onLastErrorChanged: {
     if (lastError === "") return
     clearOverhead()
@@ -1298,7 +1334,9 @@ Panel {
 
   Timer {
     interval: radarRoot.pollIntervalMs
-    running: radarRoot.watchEnabled || radarRoot.opened
+    running: radarRoot.configLoaded
+      && radarRoot.radarOn
+      && (radarRoot.watchEnabled || radarRoot.opened)
     repeat: true
     triggeredOnStart: true
     onTriggered: radarRoot.refresh(false)
@@ -1306,7 +1344,9 @@ Panel {
 
   Timer {
     interval: 10000
-    running: radarRoot.watchEnabled || radarRoot.opened
+    running: radarRoot.configLoaded
+      && radarRoot.radarOn
+      && (radarRoot.watchEnabled || radarRoot.opened)
     repeat: true
     onTriggered: {
       radarRoot.pruneStaleTracks()
@@ -1444,6 +1484,19 @@ Panel {
     }
 
     onExited: function(exitCode) {
+      if (radarRoot.discardFetchOutput) {
+        radarRoot.discardFetchOutput = false
+        radarRoot.refreshing = false
+        if (radarRoot.radarOn)
+          Qt.callLater(function() { radarRoot.refresh(true) })
+        return
+      }
+
+      if (!radarRoot.radarOn) {
+        radarRoot.refreshing = false
+        return
+      }
+
       if (exitCode === 0) {
         radarRoot.applyOutput(fetchStdout.text)
         return
@@ -1461,10 +1514,10 @@ Panel {
     anchors.fill: parent
     bar: radarRoot.bar
     text: radarRoot.radarGlyph
-    dimmed: radarRoot.lastError !== ""
+    dimmed: !radarRoot.radarOn || radarRoot.lastError !== ""
     active: radarRoot.overheadCount > 0 && radarRoot.overheadKnown
     activeColor: radarRoot.badgeColor
-    tooltipText: radarRoot.summary
+    tooltipText: radarRoot.radarOn ? radarRoot.summary : ""
 
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.MiddleButton) {
@@ -1617,16 +1670,16 @@ Panel {
 
           PanelHero {
             title: "Flight Radar"
-            meta: radarRoot.lastError !== ""
+            meta: !radarRoot.radarOn
+              ? "Radar off"
+              : (radarRoot.lastError !== ""
               ? "Aircraft data unavailable"
               : (radarRoot.initialized
                   ? radarRoot.contacts.length + " " + (radarRoot.contacts.length === 1 ? "contact" : "contacts") + " within " + radarRoot.rangeText
-                  : "Scanning…")
-            detail: radarRoot.refreshing ? "SYNC"
-              : (radarRoot.limitReached ? "LIMIT" : (radarRoot.lastError !== "" ? "OFFLINE" : "LIVE"))
+                  : "Scanning…"))
             foreground: radarRoot.foreground
             fontFamily: radarRoot.fontFamily
-            iconOpacity: radarRoot.lastError === "" ? 1 : 0.45
+            iconOpacity: radarRoot.radarOn && radarRoot.lastError === "" ? 1 : 0.45
             iconComponent: Component {
               Text {
                 text: radarRoot.radarGlyph
@@ -1635,38 +1688,84 @@ Panel {
                 font.pixelSize: Style.font.display
               }
             }
+
+            trailingControl: Component {
+              ToggleSwitch {
+                id: radarSwitch
+                checked: radarRoot.radarOn
+                foreground: radarRoot.foreground
+                accent: radarRoot.scopeTint
+                onToggled: radarRoot.saveConfig({ radarOn: !radarRoot.radarOn })
+
+                PanelToolTip {
+                  visible: radarSwitch.containsMouse
+                  text: radarRoot.radarOn ? "Turn radar off" : "Turn radar on"
+                  fontFamily: radarRoot.fontFamily
+                }
+              }
+            }
           }
 
-          Row {
-            anchors.right: parent.right
-            spacing: Style.space(6)
+          Item {
+            width: parent.width
+            implicitHeight: Math.max(statusPill.implicitHeight, hintRow.implicitHeight)
+            height: implicitHeight
 
-            KeyCap { label: "R" }
-
-            Text {
+            BorderSurface {
+              id: statusPill
+              visible: radarRoot.radarOn
+              anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
-              text: "refresh"
-              color: radarRoot.dim
-              font.family: radarRoot.fontFamily
-              font.pixelSize: Style.font.caption
+              implicitWidth: statusLabel.implicitWidth + Style.space(10)
+              implicitHeight: statusLabel.implicitHeight + Style.space(4)
+              color: "transparent"
+              borderSpec: Border.controlSpec("normal", radarRoot.foreground, Color.accent)
+              radius: Style.cornerRadius
+
+              Text {
+                id: statusLabel
+                anchors.centerIn: parent
+                text: radarRoot.statusText
+                color: radarRoot.dim
+                font.family: radarRoot.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+              }
             }
 
-            Text {
+            Row {
+              id: hintRow
+              anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              text: "·"
-              color: radarRoot.dim
-              font.family: radarRoot.fontFamily
-              font.pixelSize: Style.font.caption
-            }
+              spacing: Style.space(6)
 
-            KeyCap { label: "S" }
+              KeyCap { label: "R" }
 
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              text: "settings"
-              color: radarRoot.dim
-              font.family: radarRoot.fontFamily
-              font.pixelSize: Style.font.caption
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "refresh"
+                color: radarRoot.dim
+                font.family: radarRoot.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "·"
+                color: radarRoot.dim
+                font.family: radarRoot.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+
+              KeyCap { label: "S" }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "settings"
+                color: radarRoot.dim
+                font.family: radarRoot.fontFamily
+                font.pixelSize: Style.font.caption
+              }
             }
           }
 
@@ -2087,7 +2186,7 @@ Panel {
             Canvas {
               id: fan
               anchors.fill: parent
-              visible: radarRoot.showSweep
+              visible: radarRoot.showSweep && radarRoot.radarOn
               renderStrategy: Canvas.Cooperative
 
               // The scope is drawn about unitSize / 2 - 1, half a unit off the
@@ -2189,7 +2288,8 @@ Panel {
             text: radarRoot.rangeText + " range · overhead ≤" + radarRoot.overheadText
               + (radarRoot.overheadCeilingFt > 0
                   ? " under " + Math.round(radarRoot.overheadCeilingFt) + "ft" : "")
-              + " · " + (radarRoot.authenticated ? "authenticated" : "unauthenticated")
+              + (radarRoot.radarOn
+                  ? " · " + (radarRoot.authenticated ? "authenticated" : "unauthenticated") : "")
               + (radarRoot.hasCentre ? "" : " · locating…")
               + (radarRoot.watchEnabled ? "" : " · watch off")
             color: radarRoot.dim
@@ -2198,10 +2298,12 @@ Panel {
           }
 
           PanelSeparator {
+            visible: radarRoot.radarOn
             foreground: radarRoot.foreground
           }
 
           PanelSectionHeader {
+            visible: radarRoot.radarOn
             text: radarRoot.forecastCount > 0
               ? "CONTACTS · " + radarRoot.forecastCount + " INBOUND"
               : "CONTACTS"
@@ -2210,7 +2312,7 @@ Panel {
           }
 
           Text {
-            visible: !radarRoot.initialized
+            visible: radarRoot.radarOn && !radarRoot.initialized
             width: parent.width
             text: "Scanning for aircraft…"
             color: radarRoot.dim
@@ -2219,7 +2321,8 @@ Panel {
           }
 
           Text {
-            visible: radarRoot.initialized
+            visible: radarRoot.radarOn
+              && radarRoot.initialized
               && radarRoot.lastError === ""
               && radarRoot.contacts.length === 0
             width: parent.width

@@ -34,6 +34,7 @@
       "rangeNm": 20,
       "scopeSize": 320,
       "refreshIntervalSec": 20,
+      "radarOn": true,
       "watch": true,
       "watchIntervalSec": 60,
       "notify": true,
@@ -90,6 +91,12 @@
         "max": 300,
         "step": 5,
         "defaultValue": 20
+      },
+      {
+        "key": "radarOn",
+        "type": "boolean",
+        "label": "Radar on — off stops polling, clears contacts and silences notifications",
+        "defaultValue": true
       },
       {
         "key": "watch",
