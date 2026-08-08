@@ -880,10 +880,15 @@ Panel {
     labelOverlay.requestPaint()
   }
 
+  // -a registers the libnotify "default" action the notification service fires
+  // when the card is clicked. notify-send stays alive until the toast goes and
+  // prints the action name on stdout, so this cannot be detached.
   function sendDesktopNotification(text) {
-    Quickshell.execDetached(["omarchy-notification-send",
+    notificationProcess.running = false
+    notificationProcess.command = ["omarchy-notification-send", "-a",
       "--app-name", "radar", "-u", "low", "-g", radarGlyph,
-      text.headline, text.body])
+      text.headline, text.body]
+    notificationProcess.running = true
   }
 
   function queueNotification(contact, forecast, now) {
@@ -1548,6 +1553,22 @@ Panel {
 
       if (radarRoot.saveConfig(radarRoot.credentialsPending)) radarRoot.finishCredentialsUpdate()
       else radarRoot.failCredentialsWrite()
+    }
+  }
+
+  Process {
+    id: notificationProcess
+    running: false
+    command: []
+
+    stdout: StdioCollector {
+      id: notificationStdout
+      waitForEnd: true
+    }
+
+    onExited: {
+      if (String(notificationStdout.text).replace(/\s+/g, "") === "default")
+        radarRoot.open()
     }
   }
 
