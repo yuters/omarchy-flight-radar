@@ -1408,6 +1408,8 @@ Panel {
       repaintScope()
       return
     }
+    // A key still down when the panel closed never delivers its release here.
+    keyCatcher.heldKey = ""
     frameNow = Date.now()
     snapPositions()
     refresh(false)
@@ -1682,13 +1684,27 @@ Panel {
         if (radarRoot.removeConfirmOpen) return
         radarRoot.switchPanel(direction)
       }
+      // PanelKeyCatcher passes the character alone, so auto-repeat reads as a
+      // fresh press. These are all one-per-press actions — a held key would
+      // otherwise refetch, rewrite the config file or flip the panel every
+      // repeat interval. Cleared on the release that ends the hold.
+      property string heldKey: ""
+
+      Keys.onReleased: function(event) {
+        if (!event.isAutoRepeat) keyCatcher.heldKey = ""
+      }
+
       onTextKey: function(text) {
         if (radarRoot.removeConfirmOpen) return
 
-        if (text === "r" || text === "R") radarRoot.hardRefresh()
-        else if (text === "t" || text === "T") radarRoot.saveConfig({ radarOn: !radarRoot.radarOn })
-        else if (text === "c" || text === "C") radarRoot.crtMode = !radarRoot.crtMode
-        else if (text === "s" || text === "S") {
+        var key = text.toLowerCase()
+        if (heldKey === key) return
+        heldKey = key
+
+        if (key === "r") radarRoot.hardRefresh()
+        else if (key === "t") radarRoot.saveConfig({ radarOn: !radarRoot.radarOn })
+        else if (key === "c") radarRoot.crtMode = !radarRoot.crtMode
+        else if (key === "s") {
           radarRoot.settingsOpen = !radarRoot.settingsOpen
           if (radarRoot.settingsOpen) radarRoot.loadCentreFields()
         }
