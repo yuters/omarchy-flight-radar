@@ -609,8 +609,10 @@ Panel {
     creditsRemaining = result.remaining
     mergeAircraft(result.aircraft)
     lastUpdatedAt = Qt.formatTime(new Date(), "HH:mm:ss")
-    rebuildContacts()
+    // Evaluated first so the list is ordered by the same overhead and inbound
+    // verdicts the rows are about to be labelled with.
     evaluateTraffic()
+    rebuildContacts()
     repaintScope()
   }
 
@@ -769,7 +771,7 @@ Panel {
     if (lastError === "")
       setForecastContacts(RadarModel.forecastContacts(live, overheadRadiusNm, overheadCeilingFt))
 
-    syncContactModel(live)
+    syncContactModel(RadarModel.listOrder(live, overheadIds, forecastIds))
   }
 
   function setForecastContacts(forecasts) {

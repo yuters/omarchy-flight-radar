@@ -521,6 +521,23 @@ function forecastContacts(contacts, radiusNm, ceilingFt) {
   return out
 }
 
+// Ranked from the same maps the rows are labelled from, so a contact never
+// sorts among the overhead ones without wearing the badge.
+function listOrder(contacts, overheadIds, forecastIds) {
+  function rank(contact) {
+    if (overheadIds && overheadIds[contact.icao24]) return 0
+    if (forecastIds && forecastIds[contact.icao24]) return 1
+    return 2
+  }
+
+  var ordered = contacts.slice()
+  ordered.sort(function(left, right) {
+    var byRank = rank(left) - rank(right)
+    return byRank !== 0 ? byRank : left.distanceKm - right.distanceKm
+  })
+  return ordered
+}
+
 function overheadRingUnits(radiusNm, radiusDeg, size) {
   var scopeNm = (radiusDeg * LAT_METERS_PER_DEG / 1000.0) / 1.852
   if (scopeNm <= 0) return 0
@@ -640,6 +657,7 @@ if (typeof module !== "undefined") {
     formatAltitude: formatAltitude,
     formatDistance: formatDistance,
     isOverhead: isOverhead,
+    listOrder: listOrder,
     overheadRingUnits: overheadRingUnits,
     overheadContacts: overheadContacts,
     isForecastContact: isForecastContact,

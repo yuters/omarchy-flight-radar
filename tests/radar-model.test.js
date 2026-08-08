@@ -132,6 +132,25 @@ test("forecast qualification respects the overhead ring and ceiling", () => {
   assert.equal(radar.forecastText(forecasts[0], true), "INBOUND · 2 min · closest 0.5nm")
 })
 
+test("the list groups overhead then inbound, each nearest first", () => {
+  const contacts = [
+    { icao24: "near", distanceKm: 2 },
+    { icao24: "overhead-far", distanceKm: 3 },
+    { icao24: "overhead-near", distanceKm: 1 },
+    { icao24: "far", distanceKm: 40 },
+    { icao24: "inbound-far", distanceKm: 30 },
+    { icao24: "inbound-near", distanceKm: 10 }
+  ]
+
+  const ordered = radar.listOrder(contacts,
+    { "overhead-near": true, "overhead-far": true },
+    { "inbound-near": true, "inbound-far": true })
+
+  assert.deepEqual(ordered.map(contact => contact.icao24),
+    ["overhead-near", "overhead-far", "inbound-near", "inbound-far", "near", "far"])
+  assert.equal(contacts[0].icao24, "near")
+})
+
 test("notification batches fit a compact notification panel", () => {
   const alerts = [
     { headline: "FIRST approaching overhead", body: "Closest in 2 min", forecast: true, etaSeconds: 120 },
