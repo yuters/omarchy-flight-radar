@@ -1686,6 +1686,7 @@ Panel {
         if (radarRoot.removeConfirmOpen) return
 
         if (text === "r" || text === "R") radarRoot.hardRefresh()
+        else if (text === "t" || text === "T") radarRoot.saveConfig({ radarOn: !radarRoot.radarOn })
         else if (text === "c" || text === "C") radarRoot.crtMode = !radarRoot.crtMode
         else if (text === "s" || text === "S") {
           radarRoot.settingsOpen = !radarRoot.settingsOpen
