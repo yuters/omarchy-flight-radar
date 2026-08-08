@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "yuters.flight-radar",
   "name": "Flight Radar",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "yuters",
   "license": "MIT",
   "description": "Live aircraft overhead with short-horizon flyby forecasts, an overhead badge, and notifications. Works without an account.",
