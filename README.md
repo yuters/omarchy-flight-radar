@@ -30,6 +30,15 @@ omarchy plugin add https://github.com/yuters/omarchy-flight-radar
 omarchy plugin enable yuters.flight-radar right
 ```
 
+The `right` argument is where the radar sits in the bar. It is not fixed after
+install: open the radar's panel, press **S**, and choose the bar section
+(left, center, or right) from the settings, or move it from a terminal at any
+time:
+
+```bash
+omarchy bar move yuters.flight-radar --section center
+```
+
 ## Uninstall
 
 ```bash

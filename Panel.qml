@@ -9,6 +9,7 @@ Panel {
   id: radarRoot
 
   readonly property string pluginId: "yuters.flight-radar"
+  property string defaultBarSection: "right"
 
   moduleName: pluginId
   ipcTarget: pluginId
@@ -50,6 +51,8 @@ Panel {
   property bool configWriteFailed: false
   property bool removeConfirmOpen: false
   property bool forecastNotifyDraft: false
+  property string currentBarSection: ""
+  property string barSectionDraft: ""
 
   property real epochMs: 0
 
@@ -436,7 +439,50 @@ Panel {
     overheadField.field.value = toTenths(overheadRadiusNm)
     ceilingField.field.value = overheadCeilingFt
     forecastNotifyDraft = forecastNotifyEnabled
+    barSectionDraft = currentBarSection || defaultBarSection
     setNotice("", false)
+  }
+
+  // Placement lives in shell.json's bar.layout, which the shell owns; the
+  // widget never records a section of its own. Read the layout to show where
+  // the radar currently sits, and hand a change back to `omarchy bar move` so
+  // the shell is the one that re-places it.
+  function applyBarSection(raw) {
+    var section = ""
+    try {
+      var config = JSON.parse(String(raw || "{}"))
+      var layout = config && config.bar ? config.bar.layout : null
+      if (layout) {
+        var sections = ["left", "center", "right"]
+        for (var i = 0; i < sections.length && section === ""; i++) {
+          var entries = layout[sections[i]]
+          if (!Array.isArray(entries)) continue
+          for (var j = 0; j < entries.length; j++) {
+            var entry = entries[j]
+            var entryId = typeof entry === "string" ? entry
+              : (entry && typeof entry.id === "string" ? entry.id : "")
+            if (entryId === pluginId) {
+              section = sections[i]
+              break
+            }
+          }
+        }
+      }
+    } catch (e) {
+      section = ""
+    }
+    currentBarSection = section
+    // A selection already made in the open panel wins over an external move;
+    // otherwise keep the dropdown showing where the radar actually sits.
+    if (!settingsOpen || barSectionDraft === "")
+      barSectionDraft = section || defaultBarSection
+  }
+
+  function applyBarSectionDraft() {
+    var target = String(barSectionDraft || "")
+    if (target === "" || target === currentBarSection) return
+    barMoveProcess.command = ["omarchy", "bar", "move", pluginId, "--section", target]
+    barMoveProcess.running = true
   }
 
   // The coordinate half of an edit: {} for "leave them alone", null when the
@@ -491,6 +537,7 @@ Panel {
     saveConfig(edit)
     if (!hasManualCentre) resolveAutoLocation(true)
     hardRefresh()
+    applyBarSectionDraft()
     setNotice("Settings saved.", false)
   }
 
@@ -517,6 +564,8 @@ Panel {
     overheadField.field.value = toTenths(overheadRadiusNm)
     ceilingField.field.value = overheadCeilingFt
     forecastNotifyDraft = forecastNotifyEnabled
+    barSectionDraft = defaultBarSection
+    applyBarSectionDraft()
     setNotice("Settings reset.", false)
   }
 
@@ -1499,11 +1548,28 @@ Panel {
         var manifest = JSON.parse(text())
         radarRoot.version = String(manifest.version || "")
         radarRoot.repository = String(manifest.repository || manifest.homepage || "")
+        radarRoot.defaultBarSection =
+          manifest.barWidget && String(manifest.barWidget.defaultSection || "") !== ""
+            ? String(manifest.barWidget.defaultSection)
+            : "right"
       } catch (e) {
         radarRoot.version = ""
         radarRoot.repository = ""
       }
     }
+  }
+
+  // Placement lives in shell.json's bar.layout, owned by the shell. Read it so
+  // the settings panel can show which section the radar is in, and so an
+  // external `omarchy bar move` is reflected here too.
+  FileView {
+    id: shellConfigFile
+    path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
+    watchChanges: true
+    printErrors: false
+
+    onLoaded: radarRoot.applyBarSection(text())
+    onLoadFailed: radarRoot.currentBarSection = ""
   }
 
   FileView {
@@ -1577,6 +1643,27 @@ Panel {
     running: false
     command: []
     onExited: function(exitCode) { radarRoot.hasCredentials = exitCode === 0 }
+  }
+
+  Process {
+    id: barMoveProcess
+    running: false
+    command: []
+
+    stderr: StdioCollector {
+      id: barMoveStderr
+      waitForEnd: true
+    }
+
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        radarRoot.currentBarSection = radarRoot.barSectionDraft
+        return
+      }
+      var detail = String(barMoveStderr.text || "").replace(/\s+/g, " ").replace(/^\s+|\s+$/g, "")
+      radarRoot.setNotice(detail !== "" ? "Could not move the widget: " + detail
+        : "Could not move the widget to another bar section", true)
+    }
   }
 
   Process {
@@ -2103,6 +2190,35 @@ Panel {
                   accent: radarRoot.scopeTint
                   onToggled: radarRoot.forecastNotifyDraft = !radarRoot.forecastNotifyDraft
                 }
+              }
+            }
+
+            Row {
+              width: parent.width
+              spacing: Style.space(12)
+
+              Dropdown {
+                id: barSectionDropdown
+                width: Style.spacing.dropdownWidth
+                label: "Bar section"
+                value: radarRoot.barSectionDraft
+                options: ["left", "center", "right"]
+                foreground: radarRoot.foreground
+                accent: radarRoot.scopeTint
+                fontFamily: radarRoot.fontFamily
+                onChanged: function(section) {
+                  radarRoot.barSectionDraft = section
+                }
+              }
+
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width - barSectionDropdown.width - parent.spacing
+                text: "Where the radar glyph sits in the bar. Applied when you press Save."
+                color: radarRoot.dim
+                font.family: radarRoot.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
               }
             }
 
