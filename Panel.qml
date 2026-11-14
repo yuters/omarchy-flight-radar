@@ -20,6 +20,7 @@ Panel {
   property bool initialized: false
   property bool refreshing: false
   property bool discardFetchOutput: false
+  property string fetchArea: ""
   property bool authenticated: false
   property string lastUpdatedAt: ""
   property real frameNow: 0
@@ -145,6 +146,8 @@ Panel {
   readonly property int forecastPassDedupeMs: 15 * 60 * 1000
 
   readonly property var queryBoxes: RadarModel.boundingBoxes(centreLat, centreLon, radiusDeg)
+  readonly property var fetchArgs: RadarModel.fetchArgs(queryBoxes)
+  readonly property string fetchSky: fetchArgs.join(" ")
   readonly property int requestCredits: RadarModel.requestCredits(queryBoxes)
 
   // OpenSky bills by bounding-box area against a daily balance — 400 credits
@@ -570,7 +573,15 @@ Panel {
 
   function refresh(force) {
     if (!configLoaded || !radarOn) return
-    if (fetchProcess.running) return
+    if (fetchProcess.running) {
+      // A request for a sky that has since moved would bring the old one
+      // back: drop its output and let onExited ask again.
+      if (force && (!hasCentre || fetchArea !== fetchSky)) {
+        discardFetchOutput = true
+        fetchProcess.running = false
+      }
+      return
+    }
     if (!hasCentre) {
       resolveAutoLocation()
       return
@@ -581,14 +592,20 @@ Panel {
     lastFetchAt = now
     refreshing = true
 
-    var command = ["bash", helperPath]
-    for (var i = 0; i < queryBoxes.length; i++) {
-      var box = queryBoxes[i]
-      command.push(box.lamin.toFixed(6), box.lomin.toFixed(6),
-        box.lamax.toFixed(6), box.lomax.toFixed(6))
-    }
-    fetchProcess.command = command
+    fetchArea = fetchSky
+    fetchProcess.command = ["bash", helperPath].concat(fetchArgs)
     fetchProcess.running = true
+  }
+
+  // Binding evaluation order is undefined, so a handler running mid-update
+  // can read a stale centre. Deferring to the event loop lets every binding
+  // settle, and passing a named function lets Qt.callLater merge repeats.
+  onFetchSkyChanged: Qt.callLater(refreshSky)
+
+  // The poll makes the first request; this only refreshes a sky on show.
+  function refreshSky() {
+    if ((initialized || fetchProcess.running) && !limitReached && (watchEnabled || opened))
+      refresh(true)
   }
 
   function applyOutput(raw) {
@@ -1390,10 +1407,8 @@ Panel {
   }
 
   onHasManualCentreChanged: {
-    if (hasManualCentre) {
-      refresh(true)
-      return
-    }
+    // onFetchSkyChanged fetches the manual centre.
+    if (hasManualCentre) return
     autoResolved = false
     resolveAutoLocation(true)
   }
@@ -1615,7 +1630,7 @@ Panel {
       if (radarRoot.discardFetchOutput) {
         radarRoot.discardFetchOutput = false
         radarRoot.refreshing = false
-        if (radarRoot.radarOn)
+        if (radarRoot.radarOn && (radarRoot.watchEnabled || radarRoot.opened))
           Qt.callLater(function() { radarRoot.refresh(true) })
         return
       }

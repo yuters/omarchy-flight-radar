@@ -336,6 +336,17 @@ function boundingBoxes(centreLat, centreLon, radiusDeg) {
   return [box]
 }
 
+// opensky-fetch arguments, four per box.
+function fetchArgs(boxes) {
+  var args = []
+  for (var i = 0; i < boxes.length; i++) {
+    var box = boxes[i]
+    args.push(box.lamin.toFixed(6), box.lomin.toFixed(6),
+      box.lamax.toFixed(6), box.lomax.toFixed(6))
+  }
+  return args
+}
+
 // OpenSky bills /states/all by bounding-box area: 1 credit up to 25 square
 // degrees, then 2, 3 and 4 as it crosses 100 and 400.
 function boxAreaSqDeg(box) {
@@ -647,6 +658,7 @@ if (typeof module !== "undefined") {
     forecastApproach: forecastApproach,
     boundingBox: boundingBox,
     boundingBoxes: boundingBoxes,
+    fetchArgs: fetchArgs,
     boxAreaSqDeg: boxAreaSqDeg,
     requestCredits: requestCredits,
     rangeNmToDeg: rangeNmToDeg,

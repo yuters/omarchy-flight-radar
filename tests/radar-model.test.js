@@ -39,6 +39,22 @@ test("antimeridian scopes split into valid boxes and count both requests", () =>
   assert.equal(radar.boundingBoxes(45, -73, 2).length, 1)
 })
 
+test("fetch arguments name the sky a request was made for", () => {
+  const here = radar.fetchArgs(radar.boundingBoxes(45, -73, radar.rangeNmToDeg(20)))
+  assert.equal(here.length, 4)
+  assert.ok(here.every(arg => /^-?\d+\.\d{6}$/.test(arg)))
+
+  // The same centre and range make the same request, so one in flight is kept.
+  assert.equal(radar.fetchArgs(radar.boundingBoxes(45, -73, radar.rangeNmToDeg(20))).join(" "), here.join(" "))
+
+  // A new centre or range is a different request, so one in flight is replaced.
+  assert.notEqual(radar.fetchArgs(radar.boundingBoxes(33.62, -78.96, radar.rangeNmToDeg(20))).join(" "), here.join(" "))
+  assert.notEqual(radar.fetchArgs(radar.boundingBoxes(45, -73, radar.rangeNmToDeg(10))).join(" "), here.join(" "))
+
+  // A scope across the antimeridian is two boxes and eight arguments.
+  assert.equal(radar.fetchArgs(radar.boundingBoxes(0, 179.9, 1)).length, 8)
+})
+
 test("motion availability distinguishes missing values from northbound zero", () => {
   const northbound = state("north", -73, 45)
   northbound[10] = 0
