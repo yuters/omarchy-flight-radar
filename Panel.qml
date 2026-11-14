@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "RadarModel.js" as RadarModel
 
@@ -167,11 +168,11 @@ Panel {
     return Math.max(base, Math.round(msUntilQuotaReset() * requestCredits / creditsRemaining))
   }
 
-  readonly property color scopeTint: Color.accent
+  readonly property color scopeTint: Commons.Color.accent
 
   readonly property bool lightTheme:
-    0.2126 * Color.background.r + 0.7152 * Color.background.g + 0.0722 * Color.background.b > 0.5
-  readonly property color scopeBackground: Qt.darker(Color.background, lightTheme ? 1.07 : 2.4)
+    0.2126 * Commons.Color.background.r + 0.7152 * Commons.Color.background.g + 0.0722 * Commons.Color.background.b > 0.5
+  readonly property color scopeBackground: Qt.darker(Commons.Color.background, lightTheme ? 1.07 : 2.4)
 
   readonly property color ringOuterColor: tinted(0.8)
   readonly property color ringMidColor: tinted(lightTheme ? 0.34 : 0.26)
@@ -180,7 +181,7 @@ Panel {
   readonly property color overheadRingColor: tinted(0.55)
   readonly property color glowColor: lightTheme ? Qt.darker(scopeTint, 1.3) : Qt.lighter(scopeTint, 1.4)
 
-  readonly property color crtScreenBackground: Color.popups.background
+  readonly property color crtScreenBackground: Commons.Color.popups.background
 
   readonly property color crtBezelColor: Qt.rgba(
     crtScreenBackground.r + (foreground.r - crtScreenBackground.r) * (lightTheme ? 0.055 : 0.13),
@@ -188,7 +189,7 @@ Panel {
     crtScreenBackground.b + (foreground.b - crtScreenBackground.b) * (lightTheme ? 0.055 : 0.13), 1)
 
   readonly property color badgeColor: scopeTint
-  readonly property color badgeTextColor: Color.background
+  readonly property color badgeTextColor: Commons.Color.background
 
   // One missed poll plus a minute of grace. Straight-line extrapolation is only
   // worth anything for a couple of minutes, but polling legitimately slows down
@@ -215,8 +216,8 @@ Panel {
                    base.b + (target - base.b) * lit, 1)
   }
 
-  readonly property color foreground: bar ? bar.foreground : Color.foreground
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color foreground: bar ? bar.foreground : Commons.Color.foreground
+  readonly property color urgent: bar ? bar.urgent : Commons.Color.urgent
   readonly property color dim: Qt.darker(foreground, 1.45)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
@@ -1667,7 +1668,7 @@ Panel {
       radius: height / 2
       color: radarRoot.badgeColor
       border.width: 1
-      border.color: Color.bar.background
+      border.color: Commons.Color.bar.background
 
       Text {
         id: badgeLabel
@@ -1861,7 +1862,7 @@ Panel {
               implicitWidth: statusLabel.implicitWidth + Style.space(10)
               implicitHeight: statusLabel.implicitHeight + Style.space(4)
               color: "transparent"
-              borderSpec: Border.controlSpec("normal", radarRoot.foreground, Color.accent)
+              borderSpec: Border.controlSpec("normal", radarRoot.foreground, Commons.Color.accent)
               radius: Style.cornerRadius
 
               Text {
@@ -2622,7 +2623,7 @@ Panel {
         message: "Remove your OpenSky credentials? The radar will fall back to anonymous access, limited to 400 requests a day."
         confirmText: "Remove"
         cancelText: "Keep"
-        background: Color.background
+        background: Commons.Color.background
         foreground: radarRoot.foreground
         fontFamily: radarRoot.fontFamily
 
